@@ -67,6 +67,15 @@ class GF_UI_EXPORT UIModuleManager
    * @brief
    *
    * @param id
+   * @param p
+   * @return QString
+   */
+  auto RegisterQObject(const QString& id, QObject* p) -> QString;
+
+  /**
+   * @brief
+   *
+   * @param id
    * @return auto
    */
   auto RegisterQObject(QObject*) -> QString;
@@ -102,20 +111,6 @@ class GF_UI_EXPORT UIModuleManager
   void RegisterAllModuleTranslators();
 
   /**
-   * @brief Set the Main Window object
-   *
-   * @param main_window
-   */
-  void SetMainWindow(MainWindow* main_window);
-
-  /**
-   * @brief Get the Main Window object
-   *
-   * @return MainWindow*
-   */
-  auto GetMainWindow() -> MainWindow*;
-
-  /**
    * @brief
    *
    * @return const QSettings*
@@ -129,9 +124,11 @@ class GF_UI_EXPORT UIModuleManager
   QMap<QString, QPointer<QObject>> registered_qobjects_;
   QMap<QString, std::any> capsule_;
   QSettings settings_;
-  QPointer<MainWindow> main_window_;
 };
 
 auto GF_UI_EXPORT RegisterQObject(QObject* p) -> QString;
+
+auto GF_UI_EXPORT RegisterNamedQObject(const QString& id, QObject* p)
+    -> QString;
 
 }  // namespace GpgFrontend::UI

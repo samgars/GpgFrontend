@@ -86,6 +86,20 @@ void UIModuleManager::RegisterAllModuleTranslators() {
   }
 }
 
+auto UIModuleManager::RegisterQObject(const QString& id, QObject* p)
+    -> QString {
+  QPointer<QObject> ptr = p;
+
+  if (registered_qobjects_.contains(id)) {
+    LOG_W() << "QObject with id " << id << " already registered, overwriting";
+  }
+
+  registered_qobjects_[id] = ptr;
+  QObject::connect(p, &QObject::destroyed,
+                   [this, id]() { registered_qobjects_.remove(id); });
+  return id;
+}
+
 auto UIModuleManager::RegisterQObject(QObject* p) -> QString {
   const QString id = QString::number(reinterpret_cast<quintptr>(p), 16);
   QPointer<QObject> ptr = p;
@@ -117,10 +131,9 @@ auto GF_UI_EXPORT RegisterQObject(QObject* p) -> QString {
   return UIModuleManager::GetInstance().RegisterQObject(p);
 }
 
-void UIModuleManager::SetMainWindow(MainWindow* main_window) {
-  main_window_ = main_window;
+auto GF_UI_EXPORT RegisterNamedQObject(const QString& id, QObject* p)
+    -> QString {
+  return UIModuleManager::GetInstance().RegisterQObject(id, p);
 }
-
-auto UIModuleManager::GetMainWindow() -> MainWindow* { return main_window_; }
 
 }  // namespace GpgFrontend::UI

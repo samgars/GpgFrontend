@@ -46,8 +46,7 @@ namespace GpgFrontend::UI {
 
 MainWindow::MainWindow() : GeneralMainWindow("main_window") {
   this->setWindowTitle(qApp->applicationDisplayName());
-  // register main window
-  UIModuleManager::GetInstance().SetMainWindow(this);
+  RegisterNamedQObject("main_window", this);
 }
 
 void MainWindow::Init() noexcept {
@@ -58,6 +57,7 @@ void MainWindow::Init() noexcept {
 
     edit_ = new TextEdit(this);
     setCentralWidget(edit_);
+    RegisterNamedQObject("main_window_edit", edit_);
 
     /* the list of Keys available*/
     m_key_list_ = new KeyList(

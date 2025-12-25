@@ -273,9 +273,10 @@ auto GFGpgImportKeys(int channel, void* parent, const char* data, int size)
 }
 
 auto GFGpgCurrentGpgContextChannel() -> int {
-  auto* main_window =
-      GpgFrontend::UI::UIModuleManager::GetInstance().GetMainWindow();
+  auto* object =
+      GpgFrontend::UI::UIModuleManager::GetInstance().GetQObject("main_window");
 
+  auto* main_window = qobject_cast<GpgFrontend::UI::MainWindow*>(object);
   if (main_window != nullptr) {
     return main_window->GetCurrentGpgContextChannel();
   }
