@@ -219,19 +219,26 @@ void TextEditTabWidget::slot_save_status_to_cache_for_recovery() {
   SlotCacheTextEditors();
 }
 
-void TextEditTabWidget::SlotNewTab() {
+void TextEditTabWidget::SlotNewPlainTextTab() {
   const auto header = generate_new_title("T", "txt");
+  const auto icon = QIcon(":/icons/file.png");
+  SlotNewTab("text", header, icon);
+}
 
+void TextEditTabWidget::SlotNewTab(const QString& type, const QString& title,
+                                   const QIcon& icon) {
   auto* page = new PlainTextEditorPage();
-  auto index = this->addTab(page, header);
-  this->setTabIcon(index, QIcon(":/icons/file.png"));
-  this->setTabToolTip(index, header);
+  auto index = this->addTab(page, title);
+  this->setTabIcon(index, icon);
   this->setCurrentIndex(this->count() - 1);
+  this->setTabToolTip(index, title);
   page->GetTextPage()->setFocus();
-  connect(page->GetTextPage()->document(), &QTextDocument::modificationChanged,
-          this, &TextEditTabWidget::SlotShowModified);
-  connect(page->GetTextPage()->document(), &QTextDocument::contentsChanged,
-          this, &TextEditTabWidget::slot_save_status_to_cache_for_recovery);
+  page->setProperty("type", type);
+
+  connect(page->GetTextPage(), &QPlainTextEdit::textChanged, this,
+          &TextEditTabWidget::SlotShowModified);
+  connect(page->GetTextPage(), &QPlainTextEdit::selectionChanged, this,
+          &TextEditTabWidget::slot_save_status_to_cache_for_recovery);
 }
 
 void TextEditTabWidget::SlotNewEMailTab() {
@@ -314,6 +321,7 @@ void TextEditTabWidget::SlotOpenDefaultPath() {
       new FilePage(qobject_cast<QWidget*>(parent()),
                    home_path_as_file_panel_default_path ? QDir::homePath()
                                                         : QDir::currentPath());
+  page->setProperty("type", "file");
 
   auto index = this->addTab(page, QString());
   this->setTabIcon(index, QIcon(":/icons/workspace.png"));
@@ -470,4 +478,7 @@ auto TextEditTabWidget::generate_new_title(const QString& prefix,
                                            const QString& suffix) -> QString {
   return prefix + QString::number(++count_page_) + "." + suffix;
 }
+
+auto TextEditTabWidget::CurPage() -> QWidget* { return this->currentWidget(); }
+
 }  // namespace GpgFrontend::UI

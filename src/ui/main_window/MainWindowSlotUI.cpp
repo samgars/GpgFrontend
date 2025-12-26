@@ -210,107 +210,117 @@ void MainWindow::slot_update_crypto_operations_menu(unsigned int mask) {
 }
 
 void MainWindow::SlotGeneralEncrypt(bool) {
-  if (edit_->CurPageFileTreeView() != nullptr) {
-    const auto* file_page = edit_->CurPageFileTreeView();
+  auto* page = edit_->CurPage();
+  auto type = page->property("type").toString();
+
+  if (type == "file") {
+    auto* const file_page = qobject_cast<FilePage*>(page);
     const auto paths = file_page->GetSelected();
     this->SlotFileEncrypt(paths, file_page->IsASCIIMode());
     return;
   }
 
-  if (edit_->CurEMailPage() != nullptr) {
-    this->SlotEncryptEML();
+  if (type == "text") {
+    this->SlotEncrypt();
     return;
   }
 
-  if (edit_->CurPageTextEdit() != nullptr) {
-    this->SlotEncrypt();
-  }
+  this->SlotCustomEncrypt(type);
 }
 
 void MainWindow::SlotGeneralDecrypt(bool) {
+  auto* page = edit_->CurPage();
+  auto type = page->property("type").toString();
+
   if (edit_->CurPageFileTreeView() != nullptr) {
-    const auto* file_tree_view = edit_->CurPageFileTreeView();
-    const auto paths = file_tree_view->GetSelected();
-
+    auto* const file_page = qobject_cast<FilePage*>(page);
+    const auto paths = file_page->GetSelected();
     this->SlotFileDecrypt(paths);
-  }
-
-  if (edit_->CurEMailPage() != nullptr) {
-    this->SlotDecryptEML();
     return;
   }
 
-  if (edit_->CurPageTextEdit() != nullptr) {
+  if (type == "text") {
     this->SlotDecrypt();
+    return;
   }
+
+  this->SlotCustomDecrypt(type);
 }
 
 void MainWindow::SlotGeneralSign(bool) {
-  if (edit_->CurPageFileTreeView() != nullptr) {
-    const auto* file_page = edit_->CurPageFileTreeView();
+  auto* page = edit_->CurPage();
+  auto type = page->property("type").toString();
+
+  if (type == "file") {
+    auto* const file_page = qobject_cast<FilePage*>(page);
     const auto paths = file_page->GetSelected();
     this->SlotFileSign(paths, file_page->IsASCIIMode());
     return;
   }
 
-  if (edit_->CurEMailPage() != nullptr) {
-    this->SlotSignEML();
+  if (type == "text") {
+    this->SlotSign();
     return;
   }
 
-  if (edit_->CurPageTextEdit() != nullptr) this->SlotSign();
+  this->SlotCustomSign(type);
 }
 
 void MainWindow::SlotGeneralVerify(bool) {
-  if (edit_->CurPageFileTreeView() != nullptr) {
-    const auto* file_tree_view = edit_->CurPageFileTreeView();
-    const auto paths = file_tree_view->GetSelected();
+  auto* page = edit_->CurPage();
+  auto type = page->property("type").toString();
 
+  if (type == "file") {
+    auto* const file_page = qobject_cast<FilePage*>(page);
+    const auto paths = file_page->GetSelected();
     this->SlotFileVerify(paths);
-  }
-
-  if (edit_->CurEMailPage() != nullptr) {
-    this->SlotVerifyEML();
     return;
   }
 
-  if (edit_->CurPageTextEdit() != nullptr) this->SlotVerify();
+  if (type == "text") {
+    this->SlotVerify();
+    return;
+  }
+
+  this->SlotCustomVerify(type);
 }
 
 void MainWindow::SlotGeneralEncryptSign(bool) {
-  if (edit_->CurPageFileTreeView() != nullptr) {
-    const auto* file_page = edit_->CurPageFileTreeView();
+  auto* page = edit_->CurPage();
+  auto type = page->property("type").toString();
+
+  if (type == "file") {
+    auto* const file_page = qobject_cast<FilePage*>(page);
     const auto paths = file_page->GetSelected();
     this->SlotFileEncryptSign(paths, file_page->IsASCIIMode());
     return;
   }
 
-  if (edit_->CurEMailPage() != nullptr) {
-    this->SlotEncryptSignEML();
+  if (type == "text") {
+    this->SlotEncryptSign();
     return;
   }
 
-  if (edit_->CurPageTextEdit() != nullptr) {
-    this->SlotEncryptSign();
-  }
+  this->SlotCustomEncryptSign(type);
 }
 
 void MainWindow::SlotGeneralDecryptVerify(bool) {
-  if (edit_->CurPageFileTreeView() != nullptr) {
-    const auto* file_tree_view = edit_->CurPageFileTreeView();
-    const auto paths = file_tree_view->GetSelected();
+  auto* page = edit_->CurPage();
+  auto type = page->property("type").toString();
 
+  if (type == "file") {
+    auto* const file_page = qobject_cast<FilePage*>(page);
+    const auto paths = file_page->GetSelected();
     this->SlotFileDecryptVerify(paths);
-  }
-
-  if (edit_->CurEMailPage() != nullptr) {
-    this->SlotDecryptVerifyEML();
     return;
   }
 
-  if (edit_->CurPageTextEdit() != nullptr) {
+  if (type == "text") {
     this->SlotDecryptVerify();
+    return;
   }
+
+  this->SlotCustomDecryptVerify(type);
 }
 
 void MainWindow::slot_clean_gpg_password_cache(bool) {

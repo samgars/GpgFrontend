@@ -32,6 +32,7 @@
 #include "ui/widgets/EMailEditorPage.h"
 #include "ui/widgets/FilePage.h"
 #include "ui/widgets/PlainTextEditorPage.h"
+#include "widgets/TextEditTabWidget.h"
 
 namespace GpgFrontend::UI {
 
@@ -122,6 +123,13 @@ class TextEdit : public QWidget {
    */
   [[nodiscard]] auto CurPageFileTreeView() const -> FilePage*;
 
+  /**
+   * @brief
+   *
+   * @return QWidget*
+   */
+  [[nodiscard]] auto CurPage() -> QWidget*;
+
  public slots:
 
   /**
@@ -174,6 +182,9 @@ class TextEdit : public QWidget {
    * one
    */
   void SlotNewTab();
+
+  void SlotNewCustomTab(const QString& type, const QString& title,
+                        const QIcon& icon);
 
   /**
    * @details Adds a new tab with the title "untitled"+countpage+".eml"
@@ -304,7 +315,7 @@ class TextEdit : public QWidget {
    *
    * @param buffer
    */
-  void SlotSetGFBuffer2CurEMailPage(const GFBuffer& buffer);
+  void SlotSetGFBuffer2CurTextPage(const GFBuffer& buffer);
 
   /**
    * @brief

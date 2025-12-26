@@ -27,7 +27,6 @@
  */
 
 #include "MainWindow.h"
-#include "core/function/GlobalSettingStation.h"
 #include "core/module/ModuleManager.h"
 #include "core/utils/GpgUtils.h"
 #include "ui/UIModuleManager.h"
@@ -54,15 +53,6 @@ void MainWindow::create_actions() {
       tr("Open a new file panel"), {QKeySequence(Qt::CTRL | Qt::Key_B)});
   connect(browser_act_, &QAction::triggered, this,
           &MainWindow::slot_default_file_tab);
-
-  if (Module::IsModuleActivate(kEmailModuleID)) {
-    new_email_tab_act_ =
-        create_action("new_email_tab", tr("Mail Editor"), ":/icons/email.png",
-                      tr("Open a new text editor for email"),
-                      {QKeySequence(Qt::CTRL | Qt::Key_M)});
-    connect(new_email_tab_act_, &QAction::triggered, edit_,
-            &TextEdit::SlotNewEMailTab);
-  }
 
   browser_file_act_ = create_action(
       "file_browser", tr("Open File"), ":/icons/file-operator.png",
@@ -416,9 +406,6 @@ void MainWindow::create_menus() {
   workspace_menu_->setToolTipsVisible(true);
   workspace_menu_->addAction(browser_act_);
   workspace_menu_->addAction(new_tab_act_);
-  if (Module::IsModuleActivate(kEmailModuleID)) {
-    workspace_menu_->addAction(new_email_tab_act_);
-  }
 
   file_menu_->addSeparator();
 

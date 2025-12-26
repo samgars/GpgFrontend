@@ -53,7 +53,7 @@ struct KeyTable;
  * @brief
  *
  */
-class MainWindow : public GeneralMainWindow {
+class GF_UI_EXPORT MainWindow : public GeneralMainWindow {
   Q_OBJECT
 
  public:
@@ -167,42 +167,6 @@ class MainWindow : public GeneralMainWindow {
   void SlotVerify();
 
   /**
-   * @brief
-   *
-   */
-  void SlotVerifyEML();
-
-  /**
-   * @brief
-   *
-   */
-  void SlotDecryptEML();
-
-  /**
-   * @brief
-   *
-   */
-  void SlotSignEML();
-
-  /**
-   * @brief
-   *
-   */
-  void SlotEncryptEML();
-
-  /**
-   * @brief
-   *
-   */
-  void SlotEncryptSignEML();
-
-  /**
-   * @brief
-   *
-   */
-  void SlotDecryptVerifyEML();
-
-  /**
    * @details decrypt and verify the text of currently active textedit-page
    * with the currently checked keys
    */
@@ -254,6 +218,47 @@ class MainWindow : public GeneralMainWindow {
    * @param path
    */
   void SlotFileDecryptVerify(const QStringList& paths);
+
+  /**
+   * @brief
+   *
+   */
+  void SlotCustomEncrypt(const QString& type);
+
+  /**
+   * @brief
+   *
+   * @param type
+   */
+  void SlotCustomDecrypt(const QString& type);
+
+  /**
+   * @brief
+   *
+   * @param type
+   */
+  void SlotCustomSign(const QString& type);
+
+  /**
+   * @brief
+   *
+   * @param type
+   */
+  void SlotCustomVerify(const QString& type);
+
+  /**
+   * @brief
+   *
+   * @param type
+   */
+  void SlotCustomEncryptSign(const QString& type);
+
+  /**
+   * @brief
+   *
+   * @param type
+   */
+  void SlotCustomDecryptVerify(const QString& type);
 
   /**
    * @details get value of member restartNeeded to needed.
@@ -427,12 +432,6 @@ class MainWindow : public GeneralMainWindow {
   /**
    * @brief
    *
-   */
-  void slot_verify_email_by_eml_data(const QByteArray& buffer);
-
-  /**
-   * @brief
-   *
    * @param buffer
    */
   void slot_verify_email_by_eml_data_result_helper(
@@ -502,13 +501,6 @@ class MainWindow : public GeneralMainWindow {
    *
    */
   void slot_restart_gpg_components(bool);
-
-  /**
-   * @brief
-   *
-   * @param buffer
-   */
-  void slot_decrypt_email_by_eml_data(const QByteArray& buffer);
 
   /**
    * @brief
@@ -720,7 +712,6 @@ class MainWindow : public GeneralMainWindow {
   QDockWidget* info_board_dock_{};
 
   QAction* new_tab_act_{};               ///<  Action to create new tab
-  QAction* new_email_tab_act_{};         ///<  Action to create email tab
   QAction* switch_tab_up_act_{};         ///<  Action to switch tab up
   QAction* switch_tab_down_act_{};       ///<  Action to switch tab down
   QAction* browser_file_act_{};          ///<  Action to open file browser

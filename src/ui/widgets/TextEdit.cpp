@@ -31,7 +31,6 @@
 #include <QtPrintSupport>
 #include <cstddef>
 
-#include "core/function/CacheManager.h"
 #include "core/function/GlobalSettingStation.h"
 #include "core/utils/IOUtils.h"
 #include "ui/dialog/QuitDialog.h"
@@ -57,7 +56,7 @@ TextEdit::TextEdit(QWidget* parent) : QWidget(parent) {
   SlotNewDefaultWorkspaceTab();
 }
 
-void TextEdit::SlotNewTab() { tab_widget_->SlotNewTab(); }
+void TextEdit::SlotNewTab() { tab_widget_->SlotNewPlainTextTab(); }
 
 void TextEdit::SlotNewTabWithContent(QString title, const QString& content) {
   tab_widget_->SlotNewTabWithContent(std::move(title), content);
@@ -80,7 +79,7 @@ void TextEdit::SlotNewDefaultWorkspaceTab() {
   } else if (default_workspace_as == "email_editor") {
     tab_widget_->SlotNewEMailTab();
   } else {
-    tab_widget_->SlotNewTab();
+    tab_widget_->SlotNewPlainTextTab();
   }
 
   tab_widget_->SlotRestoreTextEditorsCache();
@@ -397,8 +396,8 @@ auto TextEdit::MaybeSaveAnyTab() -> bool {
   return can_close;
 }
 
-void TextEdit::SlotSetGFBuffer2CurEMailPage(const GFBuffer& buffer) {
-  if (CurTextPage() == nullptr) SlotNewEMailTab();
+void TextEdit::SlotSetGFBuffer2CurTextPage(const GFBuffer& buffer) {
+  if (CurTextPage() == nullptr) SlotNewTab();
   auto* edit = CurTextPage()->GetTextPage();
   edit->setPlainText(buffer.ConvertToQString());
 }
@@ -645,5 +644,12 @@ void TextEdit::SlotNewEMailTab() { tab_widget_->SlotNewEMailTab(); }
 
 void TextEdit::SlotOpenDefaultFileBrowserTab() {
   tab_widget_->SlotOpenDefaultPath();
+}
+
+auto TextEdit::CurPage() -> QWidget* { return tab_widget_->CurPage(); }
+
+void TextEdit::SlotNewCustomTab(const QString& type, const QString& title,
+                                const QIcon& icon) {
+  tab_widget_->SlotNewTab(type, title, icon);
 }
 }  // namespace GpgFrontend::UI

@@ -587,7 +587,7 @@ void MainWindow::SlotFileVerifyEML(const QString& path) {
 
   // LOG_D() << "EML BUFFER (FILE): " << buffer;
 
-  slot_verify_email_by_eml_data(buffer);
+  // slot_verify_email_by_eml_data(buffer);
 }
 
 }  // namespace GpgFrontend::UI

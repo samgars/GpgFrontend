@@ -68,13 +68,29 @@ class TextEditTabWidget : public QTabWidget {
    */
   [[nodiscard]] auto CurFilePage() const -> FilePage*;
 
+  /**
+   * @brief
+   *
+   * @return QWidget*
+   */
+  [[nodiscard]] auto CurPage() -> QWidget*;
+
  public slots:
 
   /**
    * @brief
    *
+   * @param type
+   * @param icon
+   * @param title
    */
-  void SlotNewTab();
+  void SlotNewTab(const QString& type, const QString& title, const QIcon& icon);
+
+  /**
+   * @brief
+   *
+   */
+  void SlotNewPlainTextTab();
 
   /**
    * @brief
