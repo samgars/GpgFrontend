@@ -28,6 +28,8 @@
 
 #pragma once
 
+#include <gpgme.h>
+
 extern "C" {
 
 struct GFGpgSignResult {
@@ -35,23 +37,31 @@ struct GFGpgSignResult {
   char* hash_algo;
   char* capsule_id;
   char* error_string;
+  gpgme_error_t gpgme_error;
+  gpgme_sign_result_t gpgme_sign_result;
 };
 
 struct GFGpgEncryptionResult {
   char* encrypted_data;
   char* capsule_id;
   char* error_string;
+  gpgme_error_t gpgme_error;
+  gpgme_encrypt_result_t gpgme_encrypt_result;
 };
 
 struct GFGpgDecryptResult {
   char* decrypted_data;
   char* capsule_id;
   char* error_string;
+  gpgme_error_t gpgme_error;
+  gpgme_decrypt_result_t gpgme_decrypt_result;
 };
 
 struct GFGpgVerifyResult {
   char* capsule_id;
   char* error_string;
+  gpgme_error_t gpgme_error;
+  gpgme_verify_result_t gpgme_verify_result;
 };
 
 struct GFGpgKeyUID {
@@ -158,4 +168,64 @@ auto GF_SDK_EXPORT GFGpgExportKey(int channel, char* key_id, int ascii,
  * @return int
  */
 auto GF_SDK_EXPORT GFGpgCurrentGpgContextChannel() -> int;
-}
+
+/**
+ * @brief
+ *
+ * @param s
+ */
+auto GF_SDK_EXPORT GFGpgFreeResult(void* r) -> void;
+
+/**
+ * @brief
+ *
+ * @param channel
+ * @param err
+ * @param result
+ * @param analyse
+ * @return int
+ */
+auto GF_SDK_EXPORT GFAnalyseEncryptResult(int channel, gpgme_error_t err,
+                                          gpgme_encrypt_result_t result,
+                                          const char** analyse) -> int;
+
+/**
+ * @brief
+ *
+ * @param channel
+ * @param err
+ * @param result
+ * @param analyse
+ * @return int
+ */
+auto GF_SDK_EXPORT GFAnalyseSignResult(int channel, gpgme_error_t err,
+                                       gpgme_sign_result_t result,
+                                       const char** analyse) -> int;
+
+/**
+ * @brief
+ *
+ * @param channel
+ * @param err
+ * @param result
+ * @param analyse
+ * @return int
+ */
+auto GF_SDK_EXPORT GFAnalyseDecryptResult(int channel, gpgme_error_t err,
+                                          gpgme_decrypt_result_t result,
+                                          const char** analyse) -> int;
+
+/**
+ * @brief
+ *
+ * @param channel
+ * @param err
+ * @param result
+ * @param analyse
+ * @return int
+ */
+auto GF_SDK_EXPORT GFAnalyseVerifyResult(int channel, gpgme_error_t err,
+                                         gpgme_verify_result_t result,
+                                         const char** analyse) -> int;
+
+}  // extern "C"

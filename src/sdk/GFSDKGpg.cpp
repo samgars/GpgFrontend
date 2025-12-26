@@ -35,6 +35,9 @@
 #include "core/function/gpg/GpgBasicOperator.h"
 #include "core/function/gpg/GpgKeyGetter.h"
 #include "core/function/gpg/GpgKeyImportExporter.h"
+#include "core/function/result_analyse/GpgDecryptResultAnalyse.h"
+#include "core/function/result_analyse/GpgEncryptResultAnalyse.h"
+#include "core/function/result_analyse/GpgSignResultAnalyse.h"
 #include "core/model/DataObject.h"
 #include "core/model/GpgDecryptResult.h"
 #include "core/model/GpgEncryptResult.h"
@@ -94,10 +97,15 @@ auto GF_SDK_EXPORT GFGpgSignData(int channel, char** key_ids, int key_ids_size,
   auto capsule_id =
       GpgFrontend::UI::UIModuleManager::GetInstance().MakeCapsule(result);
 
+  auto* raw_result = result.GetRaw();
+  gpgme_result_ref(raw_result);
+
   s->signature = GFStrDup(out_buffer.ConvertToQByteArray());
   s->hash_algo = GFStrDup(result.HashAlgo());
   s->capsule_id = GFStrDup(capsule_id);
   s->error_string = GFStrDup(GpgFrontend::DescribeGpgErrCode(err).second);
+  s->gpgme_error = err;
+  s->gpgme_sign_result = raw_result;
   return 0;
 }
 
@@ -178,9 +186,14 @@ auto GF_SDK_EXPORT GFGpgEncryptData(int channel, char** key_ids,
   auto capsule_id =
       GpgFrontend::UI::UIModuleManager::GetInstance().MakeCapsule(result);
 
+  auto* raw_result = result.GetRaw();
+  gpgme_result_ref(raw_result);
+
   s->encrypted_data = GFStrDup(out_buffer.ConvertToQByteArray());
   s->capsule_id = GFStrDup(capsule_id);
   s->error_string = GFStrDup(GpgFrontend::DescribeGpgErrCode(err).second);
+  s->gpgme_error = err;
+  s->gpgme_encrypt_result = raw_result;
   return 0;
 }
 
@@ -202,11 +215,6 @@ auto GF_SDK_EXPORT GFGpgDecryptData(int channel, char* data,
       GpgFrontend::GpgBasicOperator::GetInstance(channel).DecryptSync(
           in_buffer);
 
-  if (GpgFrontend::CheckGpgError(err) != GPG_ERR_NO_ERROR) {
-    s->error_string = GFStrDup(GpgFrontend::DescribeGpgErrCode(err).second);
-    return -1;
-  }
-
   auto result =
       GpgFrontend::ExtractParams<GpgFrontend::GpgDecryptResult>(data_object, 0);
   auto out_buffer =
@@ -215,9 +223,18 @@ auto GF_SDK_EXPORT GFGpgDecryptData(int channel, char* data,
   auto capsule_id =
       GpgFrontend::UI::UIModuleManager::GetInstance().MakeCapsule(result);
 
-  s->decrypted_data = GFStrDup(out_buffer.ConvertToQByteArray());
+  auto* raw_result = result.GetRaw();
+  gpgme_result_ref(raw_result);
+
+  if (out_buffer.Empty()) {
+    s->decrypted_data = GFStrDup("");
+  } else {
+    s->decrypted_data = GFStrDup(out_buffer.ConvertToQByteArray());
+  }
   s->capsule_id = GFStrDup(capsule_id);
   s->error_string = GFStrDup(GpgFrontend::DescribeGpgErrCode(err).second);
+  s->gpgme_error = err;
+  s->gpgme_decrypt_result = raw_result;
   return 0;
 }
 
@@ -253,8 +270,13 @@ auto GF_SDK_EXPORT GFGpgVerifyData(int channel, char* data, char* signature,
   auto capsule_id =
       GpgFrontend::UI::UIModuleManager::GetInstance().MakeCapsule(result);
 
+  auto* raw_result = result.GetRaw();
+  gpgme_result_ref(raw_result);
+
   s->capsule_id = GFStrDup(capsule_id);
   s->error_string = GFStrDup(GpgFrontend::DescribeGpgErrCode(err).second);
+  s->gpgme_error = err;
+  s->gpgme_verify_result = raw_result;
   return 0;
 }
 
@@ -298,4 +320,54 @@ auto GFGpgExportKey(int channel, char* key_id, int ascii, char** data,
   *data = GFStrDup(byte_array);
   *size = static_cast<int>(byte_array.size());
   return 0;
+}
+
+auto GFGpgFreeResult(void* r) -> void {
+  if (r == nullptr) return;
+  gpgme_result_unref(r);
+}
+
+auto GFAnalyseEncryptResult(int channel, gpgme_error_t err,
+                            gpgme_encrypt_result_t result, const char** analyse)
+    -> int {
+  if (result == nullptr || analyse == nullptr) return -1;
+
+  GpgFrontend::GpgEncryptResult result_obj(result);
+  GpgFrontend::GpgEncryptResultAnalyse ra(channel, err, result_obj);
+  ra.Analyse();
+  *analyse = GFStrDup(ra.GetResultReport());
+  return ra.GetStatus();
+}
+
+auto GFAnalyseDecryptResult(int channel, gpgme_error_t err,
+                            gpgme_decrypt_result_t result, const char** analyse)
+    -> int {
+  if (result == nullptr || analyse == nullptr) return -1;
+  GpgFrontend::GpgDecryptResult result_obj(result);
+  GpgFrontend::GpgDecryptResultAnalyse ra(channel, err, result_obj);
+  ra.Analyse();
+  *analyse = GFStrDup(ra.GetResultReport());
+  return ra.GetStatus();
+}
+
+auto GFAnalyseSignResult(int channel, gpgme_error_t err,
+                         gpgme_sign_result_t result, const char** analyse)
+    -> int {
+  if (result == nullptr || analyse == nullptr) return -1;
+  GpgFrontend::GpgSignResult result_obj(result);
+  GpgFrontend::GpgSignResultAnalyse ra(channel, err, result_obj);
+  ra.Analyse();
+  *analyse = GFStrDup(ra.GetResultReport());
+  return ra.GetStatus();
+}
+
+auto GFAnalyseVerifyResult(int channel, gpgme_error_t err,
+                           gpgme_verify_result_t result, const char** analyse)
+    -> int {
+  if (result == nullptr || analyse == nullptr) return -1;
+  GpgFrontend::GpgVerifyResult result_obj(result);
+  GpgFrontend::GpgVerifyResultAnalyse ra(channel, err, result_obj);
+  ra.Analyse();
+  *analyse = GFStrDup(ra.GetResultReport());
+  return ra.GetStatus();
 }

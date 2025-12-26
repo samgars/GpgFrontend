@@ -34,25 +34,8 @@
 #include <QObject>
 #include <QString>
 
-#include "core/function/GlobalSettingStation.h"
 #include "private/GFSDKPrivat.h"
 #include "ui/UIModuleManager.h"
-
-auto MetaDataArrayToQMap(MetaData** meta_data_array, int size)
-    -> QMap<QString, QString> {
-  QMap<QString, QString> map;
-
-  for (int i = 0; i < size; ++i) {
-    QString const key = GFUnStrDup(meta_data_array[i]->key);
-    QString const value = GFUnStrDup(meta_data_array[i]->value);
-    map.insert(key, value);
-
-    GpgFrontend::SMAFree(meta_data_array[i]);
-  }
-
-  GpgFrontend::SMAFree(static_cast<void*>(meta_data_array));
-  return map;
-}
 
 auto GF_SDK_EXPORT GFUIShowDialog(void* dialog_raw_ptr, void* parent_raw_ptr)
     -> bool {
