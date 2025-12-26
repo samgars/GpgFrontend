@@ -27,8 +27,10 @@
  */
 
 #include "MainWindow.h"
+#include "core/module/ModuleManager.h"
 #include "core/utils/GpgUtils.h"
 #include "core/utils/IOUtils.h"
+#include "ui/UIModuleManager.h"
 #include "ui/UserInterfaceUtils.h"
 #include "ui/dialog/SignersPicker.h"
 #include "ui/dialog/SubKeyPicker.h"
@@ -563,31 +565,5 @@ void MainWindow::SlotFileDecryptVerify(const QStringList& paths) {
     slot_verifying_unknown_signature_helper(contexts->unknown_fprs);
   }
 };
-
-void MainWindow::SlotFileVerifyEML(const QString& path) {
-  auto check_result = TargetFilePreCheck(path, true);
-  if (!std::get<0>(check_result)) {
-    QMessageBox::critical(this, tr("Error"),
-                          tr("Cannot read from file: %1").arg(path));
-    return;
-  }
-
-  QFileInfo file_info(path);
-  if (file_info.size() > static_cast<qint64>(1024 * 1024 * 32)) {
-    QMessageBox::warning(this, tr("EML File Too Large"),
-                         tr("The EML file \"%1\" is larger than 32MB and "
-                            "will not be opened.")
-                             .arg(file_info.fileName()));
-    return;
-  }
-
-  QFile eml_file(path);
-  if (!eml_file.open(QIODevice::ReadOnly)) return;
-  auto buffer = eml_file.readAll();
-
-  // LOG_D() << "EML BUFFER (FILE): " << buffer;
-
-  // slot_verify_email_by_eml_data(buffer);
-}
 
 }  // namespace GpgFrontend::UI

@@ -291,76 +291,6 @@ void MainWindow::slot_verifying_unknown_signature_helper(
   }
 }
 
-void MainWindow::slot_verify_email_by_eml_data_result_helper(
-    const Module::Event::Params& p) {
-  const auto part_mime_content_hash = p["mime_hash"];
-  const auto prm_micalg_value = p["micalg"];
-
-  auto timestamp =
-      p.value("datetime", GFBuffer{"-1"}).ConvertToQString().toLongLong();
-  auto datetime = tr("None");
-  if (timestamp > 0) {
-    datetime = QLocale().toString(QDateTime::fromMSecsSinceEpoch(timestamp));
-  }
-
-  QString email_info;
-  email_info.append("# E-Mail Information\n\n");
-  email_info.append(
-      QString("- %1: %2\n")
-          .arg(tr("From"))
-          .arg(p.value("from", GFBuffer{tr("Unknown")}).ConvertToQString()));
-  email_info.append(
-      QString("- %1: %2\n")
-          .arg(tr("To"))
-          .arg(p.value("to", GFBuffer{tr("Unknown")}).ConvertToQString()));
-  email_info.append(
-      QString("- %1: %2\n")
-          .arg(tr("Subject"))
-          .arg(p.value("subject", GFBuffer{tr("None")}).ConvertToQString()));
-  email_info.append(
-      QString("- %1: %2\n")
-          .arg(tr("CC"))
-          .arg(p.value("cc", GFBuffer{tr("None")}).ConvertToQString()));
-  email_info.append(
-      QString("- %1: %2\n")
-          .arg(tr("BCC"))
-          .arg(p.value("bcc", GFBuffer{tr("None")}).ConvertToQString()));
-  email_info.append(QString("- %1: %2\n").arg(tr("Date")).arg(datetime));
-
-  email_info.append("\n");
-  email_info.append("# OpenPGP Information\n\n");
-  email_info.append(QString("- %1: %2\n")
-                        .arg(tr("Signed EML Data Hash (SHA1)"))
-                        .arg(part_mime_content_hash.ConvertToQString()));
-  email_info.append(QString("- %1: %2\n")
-                        .arg(tr("Message Integrity Check Algorithm"))
-                        .arg(prm_micalg_value.ConvertToQString()));
-  email_info.append("\n");
-
-  if (!p["capsule_id"].Empty()) {
-    auto v = UIModuleManager::GetInstance().GetCapsule(
-        p.value("capsule_id").ConvertToQString());
-
-    try {
-      auto sign_result = std::any_cast<GpgVerifyResult>(v);
-      auto result_analyse =
-          GpgVerifyResultAnalyse(m_key_list_->GetCurrentGpgContextChannel(),
-                                 GPG_ERR_NO_ERROR, sign_result);
-      result_analyse.Analyse();
-
-      slot_refresh_info_board(result_analyse.GetStatus(),
-                              email_info + result_analyse.GetResultReport());
-
-    } catch (const std::bad_any_cast& e) {
-      LOG_E() << "capsule" << p["capsule_id"].ConvertToQString()
-              << "convert to real type failed" << e.what();
-    }
-  }
-}
-
-void MainWindow::slot_eml_verify_show_helper(const QString& email_info,
-                                             const GpgVerifyResultAnalyse& r) {}
-
 void MainWindow::slot_result_analyse_show_helper(
     const GpgResultAnalyse& result_analyse) {
   slot_refresh_info_board(result_analyse.GetStatus(),
@@ -555,9 +485,6 @@ void MainWindow::SlotCustomVerify(const QString& type) {
             });
       });
 }
-
-void MainWindow::decrypt_email_by_eml_data_result_helper(
-    Module::Event::Params p) {}
 
 void MainWindow::SlotCustomEncrypt(const QString& type) {
   auto* page = edit_->CurPage();

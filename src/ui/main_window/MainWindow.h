@@ -203,13 +203,6 @@ class GF_UI_EXPORT MainWindow : public GeneralMainWindow {
    *
    * @param path
    */
-  void SlotFileVerifyEML(const QString& path);
-
-  /**
-   * @brief
-   *
-   * @param path
-   */
   void SlotFileEncryptSign(const QStringList& paths, bool ascii);
 
   /**
@@ -432,14 +425,6 @@ class GF_UI_EXPORT MainWindow : public GeneralMainWindow {
   /**
    * @brief
    *
-   * @param buffer
-   */
-  void slot_verify_email_by_eml_data_result_helper(
-      const Module::Event::Params& p);
-
-  /**
-   * @brief
-   *
    * @param result_analyse
    */
   void slot_verifying_unknown_signature_helper(const QStringList& fprs);
@@ -467,14 +452,6 @@ class GF_UI_EXPORT MainWindow : public GeneralMainWindow {
    */
   void slot_result_analyse_show_helper(
       const QContainer<GpgOperaResult>& opera_results);
-
-  /**
-   * @brief
-   *
-   * @param result_analyse
-   */
-  void slot_eml_verify_show_helper(const QString& email_info,
-                                   const GpgVerifyResultAnalyse& r);
 
   /**
    * @brief
@@ -596,12 +573,6 @@ class GF_UI_EXPORT MainWindow : public GeneralMainWindow {
                      const QString& icon, const QString& too_tip,
                      const QContainer<QKeySequence>& shortcuts = {})
       -> QAction*;
-
-  /**
-   * @brief
-   *
-   */
-  void decrypt_email_by_eml_data_result_helper(Module::Event::Params p);
 
   /**
    * @brief
