@@ -29,7 +29,6 @@
 #pragma once
 
 #include "core/model/GFBuffer.h"
-#include "ui/widgets/EMailEditorPage.h"
 #include "ui/widgets/FilePage.h"
 #include "ui/widgets/PlainTextEditorPage.h"
 #include "widgets/TextEditTabWidget.h"
@@ -76,13 +75,6 @@ class TextEdit : public QWidget {
    *         \li 0 otherwise (e.g. if helppage)
    */
   [[nodiscard]] auto CurTextPage() const -> PlainTextEditorPage*;
-
-  /**
-   * @brief
-   *
-   * @return EMailEditorPage*
-   */
-  [[nodiscard]] auto CurEMailPage() const -> EMailEditorPage*;
 
   /**
    * @brief
@@ -185,12 +177,6 @@ class TextEdit : public QWidget {
 
   void SlotNewCustomTab(const QString& type, const QString& title,
                         const QIcon& icon);
-
-  /**
-   * @details Adds a new tab with the title "untitled"+countpage+".eml"
-   *          Sets the focus to the new tab. Increase Tab-Count by one
-   */
-  void SlotNewEMailTab();
 
   /**
    * @details
@@ -317,14 +303,6 @@ class TextEdit : public QWidget {
    */
   void SlotSetGFBuffer2CurTextPage(const GFBuffer& buffer);
 
-  /**
-   * @brief
-   *
-   * @return true
-   * @return false
-   */
-  bool SlotSaveAsEML();
-
  protected:
   /**
    * @brief Saves the content of currentTab to the file filename
@@ -332,13 +310,6 @@ class TextEdit : public QWidget {
    * @param fileName
    */
   auto saveFile(const QString& file_name) -> bool;
-
-  /**
-   * @brief
-   *
-   * @return auto
-   */
-  auto saveEMLFile(const QString& file_name) -> bool;
 
  private slots:
 

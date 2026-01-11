@@ -49,23 +49,6 @@ class PlainTextEditorPage : public QWidget {
                                QWidget* parent = nullptr);
 
   /**
-   * @details Get the filepath of the currently activated tab.
-   */
-  [[nodiscard]] auto GetFilePath() const -> const QString&;
-
-  /**
-   * @details Set filepath of currently activated tab.
-   *
-   * @param filePath The path to be set
-   */
-  void SetFilePath(const QString& filePath);
-
-  /**
-   * @details Return pointer tp the textedit of the currently activated tab.
-   */
-  auto GetTextPage() -> QPlainTextEdit*;
-
-  /**
    * @brief Get the Plain Text object
    *
    * @return QString
@@ -102,16 +85,35 @@ class PlainTextEditorPage : public QWidget {
   [[nodiscard]] auto ReadDone() const -> bool;
 
   /**
+   * @brief
+   *
+   */
+  void Clear();
+
+ public slots:
+
+  /**
+   * @details Get the filepath of the currently activated tab.
+   */
+  [[nodiscard]] auto GetFilePath() const -> QString;
+
+  /**
    * @brief notify the user that the file has been saved.
    *
    */
   void NotifyFileSaved();
 
   /**
-   * @brief
-   *
+   * @details Return pointer tp the textedit of the currently activated tab.
    */
-  void Clear();
+  auto GetTextPage() -> QPlainTextEdit*;
+
+  /**
+   * @details Set filepath of currently activated tab.
+   *
+   * @param filePath The path to be set
+   */
+  void SetFilePath(const QString& filePath);
 
  signals:
 

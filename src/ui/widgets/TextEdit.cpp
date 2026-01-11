@@ -32,7 +32,9 @@
 #include <cstddef>
 
 #include "core/function/GlobalSettingStation.h"
+#include "core/module/ModuleManager.h"
 #include "core/utils/IOUtils.h"
+#include "ui/UIModuleManager.h"
 #include "ui/dialog/QuitDialog.h"
 #include "ui/widgets/HelpPage.h"
 #include "ui/widgets/TextEditTabWidget.h"
@@ -76,8 +78,6 @@ void TextEdit::SlotNewDefaultWorkspaceTab() {
 
   if (default_workspace_as == "file_panel") {
     tab_widget_->SlotOpenDefaultPath();
-  } else if (default_workspace_as == "email_editor") {
-    tab_widget_->SlotNewEMailTab();
   } else {
     tab_widget_->SlotNewPlainTextTab();
   }
@@ -154,28 +154,32 @@ void TextEdit::SlotSave() {
     return;
   }
 
-  if (CurEMailPage() != nullptr) {
-    QString file_name = CurEMailPage()->GetFilePath();
+  auto* page = CurPage();
+  if (page == nullptr || page->property("type").toString().isEmpty()) return;
 
-    if (file_name.isEmpty()) {
-      SlotSaveAsEML();
-    } else {
-      saveEMLFile(file_name);
-    }
+  auto type = page->property("type").toString();
+
+  if (type == "text") {
+    auto filename = CurPageTextEdit()->GetFilePath();
+    filename.isEmpty() ? SlotSaveAs() : saveFile(filename);
+  }
+
+  if (type == "file") return;
+
+  auto event_id = QString("EDIT_TAB_TYPE_%1_OP_SAVE_FILE").arg(type.toUpper());
+
+  if (!Module::IsEventListening(event_id)) {
+    QMessageBox::warning(
+        this, tr("Unsupported Operation"),
+        tr("The save file operation for the tab type '%1' is not supported.")
+            .arg(type));
     return;
   }
 
-  if (CurTextPage() != nullptr) {
-    QString file_name = CurPageTextEdit()->GetFilePath();
-
-    if (file_name.isEmpty()) {
-      // QString docname = tabWidget->tabText(tabWidget->currentIndex());
-      // docname.remove(0,2);
-      SlotSaveAs();
-    } else {
-      saveFile(file_name);
-    }
-  }
+  Module::TriggerEvent(event_id,
+                       {{"page", GFBuffer{RegisterQObject(page)}},
+                        {"tab_widget", GFBuffer{RegisterQObject(tab_widget_)}}},
+                       {});
 }
 
 auto TextEdit::saveFile(const QString& file_name) -> bool {
@@ -202,42 +206,12 @@ auto TextEdit::saveFile(const QString& file_name) -> bool {
     file.close();
     return true;
   }
+
   QMessageBox::warning(
       this, tr("Warning"),
       tr("Cannot read file %1:\n%2.").arg(file_name).arg(file.errorString()));
+
   return false;
-}
-
-auto TextEdit::saveEMLFile(const QString& file_name) -> bool {
-  if (file_name.isEmpty()) return false;
-
-  PlainTextEditorPage* page = CurEMailPage();
-  if (page == nullptr) return false;
-
-  QFile file(file_name);
-  if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-    QMessageBox::warning(
-        this, tr("Warning"),
-        tr("Cannot read file %1:\n%2.").arg(file_name).arg(file.errorString()));
-    return false;
-  }
-
-  QTextStream output_stream(&file);
-  QApplication::setOverrideCursor(Qt::WaitCursor);
-  output_stream
-      << page->GetTextPage()->toPlainText().replace("\n", "\r\n").toLatin1();
-  QApplication::restoreOverrideCursor();
-  QTextDocument* document = page->GetTextPage()->document();
-
-  document->setModified(false);
-
-  int cur_index = tab_widget_->currentIndex();
-  tab_widget_->setTabText(cur_index, stripped_name(file_name));
-  page->SetFilePath(file_name);
-  page->NotifyFileSaved();
-
-  file.close();
-  return true;
 }
 
 auto TextEdit::SlotSaveAs() -> bool {
@@ -254,22 +228,6 @@ auto TextEdit::SlotSaveAs() -> bool {
   }
 
   return saveFile(QFileDialog::getSaveFileName(this, tr("Save file"), path));
-}
-
-auto TextEdit::SlotSaveAsEML() -> bool {
-  if (tab_widget_->count() == 0 || CurEMailPage() == nullptr) {
-    return true;
-  }
-
-  PlainTextEditorPage* page = CurEMailPage();
-  QString path;
-  if (!page->GetFilePath().isEmpty()) {
-    path = page->GetFilePath();
-  } else {
-    path = tab_widget_->tabText(tab_widget_->currentIndex()).remove(0, 2);
-  }
-
-  return saveEMLFile(QFileDialog::getSaveFileName(this, tr("Save file"), path));
 }
 
 void TextEdit::SlotCloseTab() { slot_remove_tab(tab_widget_->currentIndex()); }
@@ -635,12 +593,6 @@ auto TextEdit::CurPlainText() const -> QString {
 }
 
 auto TextEdit::TabWidget() const -> QTabWidget* { return tab_widget_; }
-
-auto TextEdit::CurEMailPage() const -> EMailEditorPage* {
-  return tab_widget_->CurEMailPage();
-}
-
-void TextEdit::SlotNewEMailTab() { tab_widget_->SlotNewEMailTab(); }
 
 void TextEdit::SlotOpenDefaultFileBrowserTab() {
   tab_widget_->SlotOpenDefaultPath();
