@@ -34,7 +34,6 @@
 #include "core/model/CacheObject.h"
 #include "core/model/GFBuffer.h"
 #include "ui/UISignalStation.h"
-#include "ui/widgets/EMailEditorPage.h"
 #include "ui/widgets/FilePage.h"
 #include "ui/widgets/PlainTextEditorPage.h"
 
