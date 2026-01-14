@@ -30,31 +30,27 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
 
   ExternalProject_Add(
     EP_GpgError
-
     SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/libgpg-error"
     BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/libgpg-error"
 
     CONFIGURE_COMMAND
-    bash -c
-    "cd ${CMAKE_CURRENT_SOURCE_DIR}/libgpg-error && \
-         ./autogen.sh"
-    &&
-    bash -c
-    "cd ${CMAKE_CURRENT_BINARY_DIR}/libgpg-error && \
-        CFLAGS='-fPIC' ${CMAKE_CURRENT_SOURCE_DIR}/libgpg-error/configure \
-          --prefix=${DEPS_INSTALL_ROOT} \
-          --enable-maintainer-mode \
-          --enable-static \
-          --disable-shared \
-          --disable-rpath \
-          --enable-silent-rules \
-          --disable-dependency-tracking \
-          --disable-tests \
+      ${CMAKE_COMMAND} -E chdir <SOURCE_DIR> ./autogen.sh
+    COMMAND
+      ${CMAKE_COMMAND} -E chdir <BINARY_DIR>
+        ${CMAKE_COMMAND} -E env CFLAGS=-fPIC
+        <SOURCE_DIR>/configure
+          --prefix=${DEPS_INSTALL_ROOT}
+          --enable-maintainer-mode
+          --enable-static
+          --disable-shared
+          --disable-rpath
+          --enable-silent-rules
+          --disable-dependency-tracking
+          --disable-tests
           --enable-fast-install
-      "
 
-    BUILD_COMMAND make
-    INSTALL_COMMAND make install
+    BUILD_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make install
     BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libgpg-error.a"
   )
 
@@ -65,29 +61,28 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
     BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/libassuan"
 
     CONFIGURE_COMMAND
-    bash -c
-    "cd ${CMAKE_CURRENT_SOURCE_DIR}/libassuan && \ 
-        ./autogen.sh"
-    &&
-    bash -c
-    "cd ${CMAKE_CURRENT_BINARY_DIR}/libassuan && \ 
-        CFLAGS='-fPIC' ${CMAKE_CURRENT_SOURCE_DIR}/libassuan/configure \ 
-        --prefix=${DEPS_INSTALL_ROOT} \ 
-        --with-libgpg-error-prefix=${DEPS_INSTALL_ROOT} \
-        --enable-maintainer-mode \
-        --enable-static \ 
-        --disable-shared \
-        --enable-silent-rules \
-        --disable-dependency-tracking \
-        --disable-doc \
-        --enable-fast-install
-    "
+      ${CMAKE_COMMAND} -E chdir <SOURCE_DIR> ./autogen.sh
+    COMMAND
+      ${CMAKE_COMMAND} -E chdir <BINARY_DIR>
+        ${CMAKE_COMMAND} -E env CFLAGS=-fPIC
+        <SOURCE_DIR>/configure
+          --prefix=${DEPS_INSTALL_ROOT}
+          --with-libgpg-error-prefix=${DEPS_INSTALL_ROOT}
+          --enable-maintainer-mode
+          --enable-static
+          --disable-shared
+          --enable-silent-rules
+          --disable-dependency-tracking
+          --disable-doc
+          --enable-fast-install
 
-    BUILD_COMMAND make
-    INSTALL_COMMAND make install
+    BUILD_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make install
+
     DEPENDS EP_GpgError
     BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libassuan.a"
   )
+
 
   if(MINGW)
     set(EXTRA_W32_GLIB "--enable-w32-glib")
@@ -95,41 +90,39 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
     set(EXTRA_W32_GLIB "")
   endif()
 
-  ExternalProject_Add(
-    EP_GpgME
+ExternalProject_Add(
+  EP_GpgME
 
-    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gpgme"
-    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/gpgme"
+  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gpgme"
+  BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/gpgme"
 
-    CONFIGURE_COMMAND
-    bash -c
-    "cd ${CMAKE_CURRENT_SOURCE_DIR}/gpgme && \
-        ./autogen.sh "
-    &&
-    bash -c
-    "cd ${CMAKE_CURRENT_BINARY_DIR}/gpgme && \
-        CFLAGS='-fPIC' ${CMAKE_CURRENT_SOURCE_DIR}/gpgme/configure \
-        --prefix=${DEPS_INSTALL_ROOT} \
-        --with-libgpg-error-prefix=${DEPS_INSTALL_ROOT} \
-        --with-libassuan-prefix=${DEPS_INSTALL_ROOT} \
-        --enable-maintainer-mode \
-        --enable-static \ 
-        --disable-shared \
-        --enable-silent-rules \
-        --disable-dependency-tracking \
-        --enable-languages=cl \
-        --disable-gpgconf-test \
-        --disable-gpg-test \
-        --disable-gpgsm-test \
-        --disable-g13-test \
+  CONFIGURE_COMMAND
+    ${CMAKE_COMMAND} -E chdir <SOURCE_DIR> ./autogen.sh
+  COMMAND
+    ${CMAKE_COMMAND} -E chdir <BINARY_DIR>
+      ${CMAKE_COMMAND} -E env CFLAGS=-fPIC
+      <SOURCE_DIR>/configure
+        --prefix=${DEPS_INSTALL_ROOT}
+        --with-libgpg-error-prefix=${DEPS_INSTALL_ROOT}
+        --with-libassuan-prefix=${DEPS_INSTALL_ROOT}
+        --enable-maintainer-mode
+        --enable-static
+        --disable-shared
+        --enable-silent-rules
+        --disable-dependency-tracking
+        --enable-languages=cl
+        --disable-gpgconf-test
+        --disable-gpg-test
+        --disable-gpgsm-test
+        --disable-g13-test
         ${EXTRA_W32_GLIB}
-    "
 
-    BUILD_COMMAND make
-    INSTALL_COMMAND make install
-    DEPENDS EP_GpgError EP_Assuan
-    BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libgpgme.a"
-  )
+  BUILD_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make
+  INSTALL_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make install
+
+  DEPENDS EP_GpgError EP_Assuan
+  BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libgpgme.a"
+)
 
   # GpgError
   add_library(GpgError STATIC IMPORTED)
