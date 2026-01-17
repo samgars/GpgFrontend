@@ -106,7 +106,6 @@ jobs:
             "windows-2022",
           ]
     runs-on: ${{ matrix.os }}
-    continue-on-error: true
     steps:
       - name: Set git to use LF(Windows) or CRLF(MacOS) line endings
         run: |
@@ -459,12 +458,12 @@ jobs:
           touch build/artifacts/bin/ENV.ini
           echo "PortableMode=true" >> build/artifacts/bin/ENV.ini
           cd build
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/libgf_core.dll
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/libgf_ui.dll
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/libgf_test.dll
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/GpgFrontend.exe
+          windeployqt6 --no-translations --force ./artifacts/bin/libgf_core.dll
+          windeployqt6 --no-translations --force ./artifacts/bin/libgf_ui.dll
+          windeployqt6 --no-translations --force ./artifacts/bin/libgf_test.dll
+          windeployqt6 --no-translations --force ./artifacts/bin/GpgFrontend.exe
           for module in ./artifacts/modules/*.dll; do
-            windeployqt-qt6 --no-translations --force "$module"
+            windeployqt6 --no-translations --force "$module"
           done
           mkdir upload-artifact
           cd artifacts
