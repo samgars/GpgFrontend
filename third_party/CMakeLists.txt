@@ -83,7 +83,6 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
     BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libassuan.a"
   )
 
-
   if(MINGW)
     set(EXTRA_W32_GLIB "--enable-w32-glib")
   else()
