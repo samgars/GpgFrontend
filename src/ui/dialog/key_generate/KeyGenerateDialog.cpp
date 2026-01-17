@@ -52,13 +52,11 @@ auto MakeDefaultEasyModeConf() -> QJsonArray {
       QJsonObject{
           {"name", "RSA-2048 (Standard)"},
           {"primary", QJsonObject{{"algo", "RSA2048"}, {"validity", "2y"}}},
-          {"subkey", {}},
           {"hidden", false},
       },
       QJsonObject{
           {"name", "RSA-3072 (Recommended)"},
           {"primary", QJsonObject{{"algo", "RSA3072"}, {"validity", "2y"}}},
-          {"subkey", {}},
           {"hidden", false},
       },
       QJsonObject{
