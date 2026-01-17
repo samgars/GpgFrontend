@@ -33,6 +33,8 @@
 #include "core/function/GlobalSettingStation.h"
 #include "core/model/CacheObject.h"
 #include "core/model/GFBuffer.h"
+#include "core/module/ModuleManager.h"
+#include "ui/UIModuleManager.h"
 #include "ui/UISignalStation.h"
 #include "ui/widgets/FilePage.h"
 #include "ui/widgets/PlainTextEditorPage.h"
@@ -89,11 +91,6 @@ void TextEditTabWidget::dropEvent(QDropEvent* event) {
         continue;
       }
 
-      if (file_info.suffix() == "eml") {
-        SlotOpenEMLFile(local_file);
-        return;
-      }
-
       SlotOpenFile(local_file);
     }
 
@@ -113,6 +110,13 @@ void TextEditTabWidget::dropEvent(QDropEvent* event) {
 }
 
 void TextEditTabWidget::SlotOpenFile(const QString& path) {
+  QFileInfo file_info(path);
+  auto event_id = FileExtensionEventId(file_info.suffix(), "OPEN_FILE");
+  if (!event_id.isEmpty() && Module::IsEventListening(event_id)) {
+    Module::TriggerEvent(event_id, {{"file_path", GFBuffer{path}}}, {});
+    return;
+  }
+
   QFile file(path);
   auto result = file.open(QIODevice::ReadOnly | QIODevice::Text);
   if (result) {
@@ -127,33 +131,6 @@ void TextEditTabWidget::SlotOpenFile(const QString& path) {
     QApplication::setOverrideCursor(Qt::WaitCursor);
     auto index = this->addTab(page, stripped_name(path));
     this->setTabIcon(index, QIcon(":/icons/file.png"));
-    this->setCurrentIndex(this->count() - 1);
-    QApplication::restoreOverrideCursor();
-    page->GetTextPage()->setFocus();
-    page->ReadFile();
-  } else {
-    QMessageBox::warning(
-        this, tr("Warning"),
-        tr("Cannot read file %1:\n%2.").arg(path).arg(file.errorString()));
-  }
-
-  file.close();
-}
-
-void TextEditTabWidget::SlotOpenEMLFile(const QString& path) {
-  QFile file(path);
-  auto result = file.open(QIODevice::ReadOnly | QIODevice::Text);
-  if (result) {
-    auto* page = new EMailEditorPage(path, this);
-
-    connect(page->GetTextPage(), &QPlainTextEdit::textChanged, this,
-            &TextEditTabWidget::SlotShowModified);
-    connect(page->GetTextPage(), &QPlainTextEdit::selectionChanged, this,
-            &TextEditTabWidget::slot_save_status_to_cache_for_recovery);
-
-    QApplication::setOverrideCursor(Qt::WaitCursor);
-    auto index = this->addTab(page, stripped_name(path));
-    this->setTabIcon(index, QIcon(":/icons/email.png"));
     this->setCurrentIndex(this->count() - 1);
     QApplication::restoreOverrideCursor();
     page->GetTextPage()->setFocus();
@@ -189,10 +166,6 @@ auto TextEditTabWidget::CurTextPage() const -> PlainTextEditorPage* {
   return qobject_cast<PlainTextEditorPage*>(this->currentWidget());
 }
 
-auto TextEditTabWidget::CurEMailPage() const -> EMailEditorPage* {
-  return qobject_cast<EMailEditorPage*>(this->currentWidget());
-}
-
 auto TextEditTabWidget::CurPageTextEdit() const -> PlainTextEditorPage* {
   auto* cur_page = qobject_cast<PlainTextEditorPage*>(this->currentWidget());
   return cur_page;
@@ -218,14 +191,14 @@ void TextEditTabWidget::slot_save_status_to_cache_for_recovery() {
   SlotCacheTextEditors();
 }
 
-void TextEditTabWidget::SlotNewPlainTextTab() {
+auto TextEditTabWidget::SlotNewPlainTextTab() -> QWidget* {
   const auto header = generate_new_title("T", "txt");
   const auto icon = QIcon(":/icons/file.png");
-  SlotNewTab("text", header, icon);
+  return SlotNewTab("text", header, icon);
 }
 
-void TextEditTabWidget::SlotNewTab(const QString& type, const QString& title,
-                                   const QIcon& icon) {
+auto TextEditTabWidget::SlotNewTab(const QString& type, const QString& title,
+                                   const QIcon& icon) -> QWidget* {
   auto* page = new PlainTextEditorPage();
   auto index = this->addTab(page, title);
   this->setTabIcon(index, icon);
@@ -238,22 +211,8 @@ void TextEditTabWidget::SlotNewTab(const QString& type, const QString& title,
           &TextEditTabWidget::SlotShowModified);
   connect(page->GetTextPage(), &QPlainTextEdit::selectionChanged, this,
           &TextEditTabWidget::slot_save_status_to_cache_for_recovery);
-}
 
-void TextEditTabWidget::SlotNewEMailTab() {
-  QString header = tr("untitled") + QString::number(++count_page_) + ".eml";
-
-  auto* page = new EMailEditorPage();
-  auto index = this->addTab(page, header);
-  this->setTabIcon(index, QIcon(":/icons/email.png"));
-  this->setCurrentIndex(this->count() - 1);
-  this->setTabToolTip(index, header);
-  page->GetTextPage()->setFocus();
-
-  connect(page->GetTextPage(), &QPlainTextEdit::textChanged, this,
-          &TextEditTabWidget::SlotShowModified);
-  connect(page->GetTextPage(), &QPlainTextEdit::selectionChanged, this,
-          &TextEditTabWidget::slot_save_status_to_cache_for_recovery);
+  return page;
 }
 
 void TextEditTabWidget::SlotNewTabWithGFBuffer(QString title,

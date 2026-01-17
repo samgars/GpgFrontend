@@ -37,8 +37,7 @@
 #include "private/GFSDKPrivat.h"
 #include "ui/UIModuleManager.h"
 
-auto GF_SDK_EXPORT GFUIShowDialog(void* dialog_raw_ptr, void* parent_raw_ptr)
-    -> bool {
+auto GFUIShowDialog(void* dialog_raw_ptr, void* parent_raw_ptr) -> bool {
   if (dialog_raw_ptr == nullptr) {
     LOG_E() << "dialog raw ptr is nullptr";
     return false;
@@ -88,8 +87,7 @@ auto GF_SDK_EXPORT GFUIShowDialog(void* dialog_raw_ptr, void* parent_raw_ptr)
   return true;
 }
 
-auto GF_SDK_EXPORT GFUICreateGUIObject(QObjectFactory factory, void* data)
-    -> void* {
+auto GFUICreateGUIObject(QObjectFactory factory, void* data) -> void* {
   void* object = nullptr;
 
   if (QThread::currentThread() == QApplication::instance()->thread()) {
@@ -120,8 +118,21 @@ auto GF_SDK_EXPORT GFUIGetGUIObject(const char* id) -> void* {
   return object;
 }
 
-auto GF_SDK_EXPORT GFUIGlobalSettings() -> void* {
+auto GFUIGlobalSettings() -> void* {
   const auto* settings =
       GpgFrontend::UI::UIModuleManager::GetInstance().GetSettings();
   return static_cast<void*>(const_cast<QSettings*>(settings));
+}
+
+auto GFUIRegisterFileExtensionHandleEvent(const char* extension,
+                                          const char* event_prefix) -> int {
+  if (extension == nullptr || event_prefix == nullptr) {
+    LOG_W() << "extension or event prefix is nullptr";
+    return -1;
+  }
+
+  GpgFrontend::UI::UIModuleManager::GetInstance()
+      .RegisterFileExtensionHandleEvent(GFUnStrDup(extension),
+                                        GFUnStrDup(event_prefix));
+  return 0;
 }

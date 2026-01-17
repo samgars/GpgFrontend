@@ -29,7 +29,6 @@
 #include "TextEdit.h"
 
 #include <QtPrintSupport>
-#include <cstddef>
 
 #include "core/function/GlobalSettingStation.h"
 #include "core/module/ModuleManager.h"
@@ -58,7 +57,9 @@ TextEdit::TextEdit(QWidget* parent) : QWidget(parent) {
   SlotNewDefaultWorkspaceTab();
 }
 
-void TextEdit::SlotNewTab() { tab_widget_->SlotNewPlainTextTab(); }
+auto TextEdit::SlotNewTab() -> QWidget* {
+  return tab_widget_->SlotNewPlainTextTab();
+}
 
 void TextEdit::SlotNewTabWithContent(QString title, const QString& content) {
   tab_widget_->SlotNewTabWithContent(std::move(title), content);
@@ -600,8 +601,10 @@ void TextEdit::SlotOpenDefaultFileBrowserTab() {
 
 auto TextEdit::CurPage() -> QWidget* { return tab_widget_->CurPage(); }
 
-void TextEdit::SlotNewCustomTab(const QString& type, const QString& title,
-                                const QIcon& icon) {
-  tab_widget_->SlotNewTab(type, title, icon);
+auto TextEdit::SlotNewCustomTab(const QString& type, const QString& title,
+                                const QIcon& icon) -> QWidget* {
+  return tab_widget_->SlotNewTab(type, title, icon);
 }
+
+auto TextEdit::SlotGetTabWidget() -> QTabWidget* { return tab_widget_; }
 }  // namespace GpgFrontend::UI

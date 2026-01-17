@@ -117,12 +117,32 @@ class GF_UI_EXPORT UIModuleManager
    */
   [[nodiscard]] auto GetSettings() const -> const QSettings*;
 
+  /**
+   * @brief
+   *
+   * @param extension
+   * @param event_prefix
+   */
+  auto RegisterFileExtensionHandleEvent(const QString& extension,
+                                        const QString& event_prefix) -> bool;
+
+  /**
+   * @brief Get the File Extension Event Id object
+   *
+   * @param extension
+   * @param operation
+   * @return QString
+   */
+  auto GetFileExtensionEventId(const QString& extension,
+                               const QString& operation) -> QString;
+
  private:
   QMap<QString, ModuleTranslatorInfo> translator_data_readers_;
   QContainer<QTranslator*> registered_translators_;
   QContainer<QByteArray> read_translator_data_list_;
   QMap<QString, QPointer<QObject>> registered_qobjects_;
   QMap<QString, std::any> capsule_;
+  QMap<QString, QString> file_ext_event_prefix_map_;
   QSettings settings_;
 };
 
@@ -130,5 +150,8 @@ auto GF_UI_EXPORT RegisterQObject(QObject* p) -> QString;
 
 auto GF_UI_EXPORT RegisterNamedQObject(const QString& id, QObject* p)
     -> QString;
+
+auto GF_UI_EXPORT FileExtensionEventId(const QString& extension,
+                                       const QString& operation) -> QString;
 
 }  // namespace GpgFrontend::UI

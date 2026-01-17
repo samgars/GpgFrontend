@@ -127,13 +127,39 @@ auto UIModuleManager::GetSettings() const -> const QSettings* {
   return &settings_;
 }
 
-auto GF_UI_EXPORT RegisterQObject(QObject* p) -> QString {
+auto RegisterQObject(QObject* p) -> QString {
   return UIModuleManager::GetInstance().RegisterQObject(p);
 }
 
-auto GF_UI_EXPORT RegisterNamedQObject(const QString& id, QObject* p)
-    -> QString {
+auto RegisterNamedQObject(const QString& id, QObject* p) -> QString {
   return UIModuleManager::GetInstance().RegisterQObject(id, p);
+}
+
+auto FileExtensionEventId(const QString& extension, const QString& operation)
+    -> QString {
+  return UIModuleManager::GetInstance().GetFileExtensionEventId(extension,
+                                                                operation);
+}
+
+auto UIModuleManager::RegisterFileExtensionHandleEvent(
+    const QString& extension, const QString& event_prefix) -> bool {
+  if (file_ext_event_prefix_map_.contains(extension)) {
+    LOG_W() << "extension already registered:" << extension;
+    return false;
+  }
+  file_ext_event_prefix_map_.insert(extension, event_prefix);
+  return true;
+}
+
+auto UIModuleManager::GetFileExtensionEventId(const QString& extension,
+                                              const QString& operation)
+    -> QString {
+  auto event_prefix = file_ext_event_prefix_map_.value(extension, QString());
+  if (event_prefix.isEmpty()) {
+    LOG_W() << "no event prefix registered for extension:" << extension;
+    return {};
+  }
+  return QString("FILE_EXT_%1_OP_%2").arg(event_prefix, operation).toUpper();
 }
 
 }  // namespace GpgFrontend::UI

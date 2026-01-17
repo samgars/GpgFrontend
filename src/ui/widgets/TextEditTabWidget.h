@@ -29,10 +29,10 @@
 #pragma once
 
 #include "core/model/GFBuffer.h"
+
 namespace GpgFrontend::UI {
 
 class PlainTextEditorPage;
-class EMailEditorPage;
 class FilePage;
 
 class TextEditTabWidget : public QTabWidget {
@@ -46,13 +46,6 @@ class TextEditTabWidget : public QTabWidget {
    * @return PlainTextEditorPage*
    */
   [[nodiscard]] auto CurTextPage() const -> PlainTextEditorPage*;
-
-  /**
-   * @brief
-   *
-   * @return PlainTextEditorPage*
-   */
-  [[nodiscard]] auto CurEMailPage() const -> EMailEditorPage*;
 
   /**
    * @brief
@@ -84,19 +77,14 @@ class TextEditTabWidget : public QTabWidget {
    * @param icon
    * @param title
    */
-  void SlotNewTab(const QString& type, const QString& title, const QIcon& icon);
+  auto SlotNewTab(const QString& type, const QString& title, const QIcon& icon)
+      -> QWidget*;
 
   /**
    * @brief
    *
    */
-  void SlotNewPlainTextTab();
-
-  /**
-   * @brief
-   *
-   */
-  void SlotNewEMailTab();
+  auto SlotNewPlainTextTab() -> QWidget*;
 
   /**
    * @brief
@@ -124,13 +112,6 @@ class TextEditTabWidget : public QTabWidget {
    * @details Adds a new tab with opening file by path
    */
   void SlotOpenFile(const QString& path);
-
-  /**
-   * @brief
-   *
-   * @param path
-   */
-  void SlotOpenEMLFile(const QString& path);
 
   /**
    * @brief

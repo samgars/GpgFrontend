@@ -169,14 +169,22 @@ class TextEdit : public QWidget {
   void SlotPrint();
 
   /**
-   * @details Adds a new tab with the title "untitled"+countpage+".txt"
-   *                      Sets the focus to the new tab. Increase Tab-Count by
-   * one
+   * @brief
+   *
+   * @return QWidget*
    */
-  void SlotNewTab();
+  auto SlotNewTab() -> QWidget*;
 
-  void SlotNewCustomTab(const QString& type, const QString& title,
-                        const QIcon& icon);
+  /**
+   * @brief
+   *
+   * @param type
+   * @param title
+   * @param icon
+   * @return QWidget*
+   */
+  auto SlotNewCustomTab(const QString& type, const QString& title,
+                        const QIcon& icon) -> QWidget*;
 
   /**
    * @details
@@ -302,6 +310,13 @@ class TextEdit : public QWidget {
    * @param buffer
    */
   void SlotSetGFBuffer2CurTextPage(const GFBuffer& buffer);
+
+  /**
+   * @brief
+   *
+   * @return QTabWidget*
+   */
+  auto SlotGetTabWidget() -> QTabWidget*;
 
  protected:
   /**

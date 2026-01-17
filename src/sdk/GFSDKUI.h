@@ -40,4 +40,7 @@ auto GF_SDK_EXPORT GFUIGetGUIObject(const char* id) -> void*;
 auto GF_SDK_EXPORT GFUIShowDialog(void* dialog, void* parent) -> bool;
 
 auto GF_SDK_EXPORT GFUIGlobalSettings() -> void*;
+
+auto GF_SDK_EXPORT GFUIRegisterFileExtensionHandleEvent(
+    const char* extension, const char* event_prefix) -> int;
 }
