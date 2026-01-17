@@ -23,7 +23,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-name: Develop CI Qt5
+name: Develop CI Qt5 Build
 
 on:
   push:
@@ -70,10 +70,3 @@ jobs:
             -DGPGFRONTEND_QT5_BUILD=ON \
             -DGPGFRONTEND_LINK_GPGME_INTO_CORE=ON
           cmake --build ${{github.workspace}}/build --config {{$env.BUILD_TYPE}} -- -v
-
-      - name: Run Unit Tests
-        run: |
-          cd ${{github.workspace}}/build/final-artifact
-          export QT_QPA_PLATFORM=offscreen
-          export GTEST_OUTPUT=json:/workspace/GpgFrontend/GpgFrontend/build/final-artifact/unit_tests.json
-          ./Gpg_Frontend-*-x86_64.AppImage -t || true

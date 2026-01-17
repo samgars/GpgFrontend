@@ -23,7 +23,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-name: Develop CI Qt6
+name: Develop CI Qt6 Build & Test
 
 on:
   push:
