@@ -36,3 +36,12 @@ target_include_directories(${LIBRARY_TARGET} PUBLIC sdk)
 
 # link module system
 target_link_libraries(${LIBRARY_TARGET} PRIVATE gf_core gf_ui)
+
+# add gpgme header path if needed
+if (GNUPG_DEPS_BUILT)
+  get_target_property(_incs GnuPGDeps INTERFACE_INCLUDE_DIRECTORIES)
+  if (NOT _incs)
+    message(FATAL_ERROR "Failed to get GnuPGDeps include directories")
+  endif()
+  target_include_directories(${LIBRARY_TARGET} PRIVATE ${_incs})
+endif()
