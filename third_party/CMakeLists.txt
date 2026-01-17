@@ -147,6 +147,9 @@ ExternalProject_Add(
   add_dependencies(GnuPGDeps EP_GpgError EP_Assuan EP_GpgME)
   target_include_directories(GnuPGDeps INTERFACE ${DEPS_INSTALL_ROOT}/include)
   target_link_libraries(GnuPGDeps INTERFACE GpgME Assuan GpgError)
+
+  # mark this status as really built
+  set(GNUPG_DEPS_BUILT TRUE CACHE BOOL "GnuPGDeps built status" FORCE)
 endif()
 
 if(BUILD_AND_STATIC_LINK_GPGME AND MINGW)
