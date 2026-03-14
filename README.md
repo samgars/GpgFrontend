@@ -20,6 +20,11 @@ trustworthy to your privacy life.
 
 > If you like GpgFrontend, you can give it a ⭐ on GitHub as donation. :)
 
+**Planned Next Release:** 
+
+- v2.1.11 (before 2026-04-30) regular update with no major new features
+  but enhancements of modules APIs and security improvements.
+
 ## Table of Contents
 
 - [GpgFrontend](#gpgfrontend)
