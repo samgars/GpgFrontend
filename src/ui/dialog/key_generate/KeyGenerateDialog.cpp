@@ -830,8 +830,8 @@ void KeyGenerateDialog::slot_easy_combination_changed(const QString& mode) {
 }
 
 void KeyGenerateDialog::do_generate() {
-  auto f = [this,
-            gen_key_info = this->gen_key_info_](const OperaWaitingHd& hd) {
+  auto f = [this, gen_key_info =
+                      this->gen_key_info_](const OperaWaitingHd& hd) -> void {
     GpgKeyOpera::GetInstance(channel_).GenerateKeyWithSubkey(
         gen_key_info, gen_subkey_info_,
         [this, hd](GpgError err, const DataObjectPtr&) {
@@ -924,7 +924,7 @@ void KeyGenerateDialog::slot_save_as_easy_profile_config() {
   auto validity = ui_->easyValidityPeriodComboBox->currentText();
   auto it = std::find_if(
       k_expire_options_.begin(), k_expire_options_.end(),
-      [&](const ExpireOption& o) { return o.display == validity; });
+      [&](const ExpireOption& o) -> bool { return o.display == validity; });
 
   auto expire_option =
       it != k_expire_options_.end() ? *it : k_default_expire_option_;
@@ -1014,7 +1014,7 @@ void KeyGenerateDialog::slot_delete_easy_profile_config() {
   }
 
   auto it = std::find_if(easy_mode_conf_.begin(), easy_mode_conf_.end(),
-                         [&](const EasyModeConf& c) {
+                         [&](const EasyModeConf& c) -> bool {
                            return c.name.trimmed().compare(
                                       profile_name, Qt::CaseInsensitive) == 0;
                          });

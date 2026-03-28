@@ -66,7 +66,7 @@ const QContainer<KeyAlgo> KeyGenerateInfo::kPrimaryKeyAlgos = {
     {"brainpoolp512r1", "BrainPooL", "ECDSA", 512, kSIGN | kAUTH | kCERT,
      "2.3.0"},
     {"ed448", "ED448", "EdDSA", 448, kSIGN | kAUTH | kCERT, "2.3.0"},
-    {"secp256k1", "ED448", "EdDSA", 256, kSIGN | kAUTH | kCERT, "2.3.0"},
+    {"secp256k1", "SECP256K1", "EdDSA", 256, kSIGN | kAUTH | kCERT, "2.3.0"},
 };
 
 const QContainer<KeyAlgo> KeyGenerateInfo::kSubKeyAlgos = {
@@ -89,6 +89,7 @@ const QContainer<KeyAlgo> KeyGenerateInfo::kSubKeyAlgos = {
     {"brainpoolp512r1", "BrainPooL", "ECDH", 512, kENCRYPT, "2.3.0"},
     {"x448", "X448", "ECDH", 448, kENCRYPT, "2.3.0"},
     {"secp256k1", "SECP256K1", "ECDH", 256, kENCRYPT, "2.3.0"},
+
     /**
      * GnuPG supports the Elgamal asymmetric encryption algorithm in key lengths
      * ranging from 1024 to 4096 bits.
@@ -97,6 +98,19 @@ const QContainer<KeyAlgo> KeyGenerateInfo::kSubKeyAlgos = {
     {"elg2048", "ELG-E", "ELG-E", 2048, kENCRYPT, "2.2.0"},
     {"elg3072", "ELG-E", "ELG-E", 3072, kENCRYPT, "2.2.0"},
     {"elg4096", "ELG-E", "ELG-E", 4096, kENCRYPT, "2.2.0"},
+
+    // For classic algorithms, key_length is the key or curve size.
+    // For hybrid PQC algorithms like ky768_* / ky1024_*,
+    // key_length stores the ML-KEM parameter set identifier, not ECC curve
+    // bits.
+    {"ky768_cv25519", "Kyber-768 + Curve25519", "HYBRID-KEM", 768, kENCRYPT,
+     "2.5.x"},
+    {"ky768_bp256", "Kyber-768 + BrainpoolP256r1", "HYBRID-KEM", 768, kENCRYPT,
+     "2.5.x"},
+    {"ky1024_bp512", "Kyber-1024 + BrainpoolP512r1", "HYBRID-KEM", 1024,
+     kENCRYPT, "2.5.x"},
+    {"ky1024_cv448", "Kyber-1024 + X448", "HYBRID-KEM", 1024, kENCRYPT,
+     "2.5.x"},
 };
 
 auto KeyGenerateInfo::GetSupportedKeyAlgo(int channel) -> QContainer<KeyAlgo> {
