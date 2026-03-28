@@ -25,6 +25,59 @@
         <item row="0" column="0">
          <layout class="QVBoxLayout" name="verticalLayout_3">
           <item>
+           <widget class="QCheckBox" name="clearGpgPasswordCacheCheckBox">
+            <property name="text">
+             <string>Clear gpg password cache when closing GpgFrontend.</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,0">
+            <property name="spacing">
+             <number>6</number>
+            </property>
+            <property name="sizeConstraint">
+             <enum>QLayout::SetDefaultConstraint</enum>
+            </property>
+            <item>
+             <widget class="QLabel" name="modulePolicyLabel">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="text">
+               <string>Module Loading Policy</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="modulePolicyComboBox">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+         </layout>
+        </item>
+       </layout>
+      </widget>
+     </item>
+     <item>
+      <widget class="QGroupBox" name="importConfirmationBox">
+       <property name="title">
+        <string>Operation</string>
+       </property>
+       <layout class="QGridLayout" name="gridLayout_4">
+        <item row="0" column="0">
+         <layout class="QVBoxLayout" name="verticalLayout_4">
+          <item>
            <layout class="QHBoxLayout" name="horizontalLayout">
             <item>
              <widget class="QLabel" name="defaultWorkspaceAsLabel">
@@ -57,33 +110,6 @@
            </widget>
           </item>
           <item>
-           <widget class="QCheckBox" name="clearGpgPasswordCacheCheckBox">
-            <property name="text">
-             <string>Clear gpg password cache when closing GpgFrontend.</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QCheckBox" name="restoreTextEditorPageCheckBox">
-            <property name="text">
-             <string>Cache text editor contents.</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-       </layout>
-      </widget>
-     </item>
-     <item>
-      <widget class="QGroupBox" name="importConfirmationBox">
-       <property name="title">
-        <string>Operation</string>
-       </property>
-       <layout class="QGridLayout" name="gridLayout_4">
-        <item row="0" column="0">
-         <layout class="QVBoxLayout" name="verticalLayout_4">
-          <item>
            <widget class="QCheckBox" name="importConfirmationCheckBox">
             <property name="text">
              <string>Import key files dropped on the Key List without confirmation.</string>
@@ -91,9 +117,9 @@
            </widget>
           </item>
           <item>
-           <widget class="QCheckBox" name="disableLoadingModulesCheckBox">
+           <widget class="QCheckBox" name="restoreTextEditorPageCheckBox">
             <property name="text">
-             <string>Disable loading of all modules (including integrated modules)</string>
+             <string>Cache text editor contents.</string>
             </property>
            </widget>
           </item>
@@ -113,7 +139,7 @@
           <item>
            <widget class="QComboBox" name="langSelectBox">
             <property name="sizeAdjustPolicy">
-             <enum>QComboBox::SizeAdjustPolicy::AdjustToContents</enum>
+             <enum>QComboBox::AdjustToContents</enum>
             </property>
            </widget>
           </item>
@@ -165,9 +191,6 @@
      </item>
      <item>
       <spacer name="verticalSpacer">
-       <property name="orientation">
-        <enum>Qt::Orientation::Vertical</enum>
-       </property>
        <property name="sizeHint" stdset="0">
         <size>
          <width>20</width>
