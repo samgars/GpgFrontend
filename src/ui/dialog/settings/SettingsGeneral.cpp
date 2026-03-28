@@ -41,6 +41,17 @@ GeneralTab::GeneralTab(QWidget* parent)
 
   ui_->cacheBox->setTitle(tr("Base"));
 
+  ui_->clearGpgPasswordCacheCheckBox->setText(
+      tr("Clear gpg password cache when closing GpgFrontend."));
+
+  ui_->modulePolicyLabel->setText(tr("Module Loading Policy:"));
+  ui_->modulePolicyComboBox->addItem(tr("Only Integrated Modules"),
+                                     "only_integrated");
+  ui_->modulePolicyComboBox->addItem(tr("All Modules"), "all");
+  ui_->modulePolicyComboBox->addItem(tr("Disable"), "disable");
+
+  ui_->importConfirmationBox->setTitle(tr("Operation"));
+
   ui_->defaultWorkspaceAsLabel->setText(tr("Default Workspace As:"));
   ui_->filePanelRadioButton->setText(tr("File Panel"));
   ui_->textEditorRadioButton->setText(tr("Text Editor"));
@@ -52,16 +63,11 @@ GeneralTab::GeneralTab(QWidget* parent)
   ui_->homePathAsDefaultPathcheckBox->setText(
       tr("Use home path as the default path for FilePanel"));
 
-  ui_->clearGpgPasswordCacheCheckBox->setText(
-      tr("Clear gpg password cache when closing GpgFrontend."));
   ui_->restoreTextEditorPageCheckBox->setText(
       tr("Cache text editor contents."));
 
-  ui_->importConfirmationBox->setTitle(tr("Operation"));
   ui_->importConfirmationCheckBox->setText(
       tr("Import files dropped on the Key List without confirmation."));
-  ui_->disableLoadingModulesCheckBox->setText(
-      tr("Disable loading of all modules (including integrated modules)"));
 
   ui_->langBox->setTitle(tr("Language"));
   ui_->langNoteLabel->setText(
@@ -148,10 +154,21 @@ void GeneralTab::SetSettings() {
   ui_->importConfirmationCheckBox->setCheckState(
       confirm_import_keys ? Qt::Checked : Qt::Unchecked);
 
-  auto disable_loading_all_modules =
-      settings.value("basic/disable_loading_all_modules", false).toBool();
-  ui_->disableLoadingModulesCheckBox->setCheckState(
-      disable_loading_all_modules ? Qt::Checked : Qt::Unchecked);
+  auto module_loading_policy =
+      settings.value("basic/module_loading_policy", "only_integrated")
+          .toString();
+  if (module_loading_policy == "all") {
+    ui_->modulePolicyComboBox->setCurrentIndex(
+        ui_->modulePolicyComboBox->findData("all"));
+  } else if (module_loading_policy == "only_integrated") {
+    ui_->modulePolicyComboBox->setCurrentIndex(
+        ui_->modulePolicyComboBox->findData("only_integrated"));
+  } else if (module_loading_policy == "disable") {
+    ui_->modulePolicyComboBox->setCurrentIndex(
+        ui_->modulePolicyComboBox->findData("disable"));
+  } else {
+    ui_->modulePolicyComboBox->findData("only_integrated");
+  }
 
   auto lang_key = settings.value("basic/lang").toString();
   auto lang_value = lang_.value(lang_key);
@@ -178,9 +195,9 @@ void GeneralTab::ApplySettings() {
                     ui_->restoreTextEditorPageCheckBox->isChecked());
   settings.setValue("basic/confirm_import_keys",
                     ui_->importConfirmationCheckBox->isChecked());
-  settings.setValue("basic/disable_loading_all_modules",
-                    ui_->disableLoadingModulesCheckBox->isChecked());
   settings.setValue("basic/lang", lang_.key(ui_->langSelectBox->currentText()));
+  settings.setValue("basic/module_loading_policy",
+                    ui_->modulePolicyComboBox->currentData().toString());
 }
 
 }  // namespace GpgFrontend::UI

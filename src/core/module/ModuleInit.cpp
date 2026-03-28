@@ -140,16 +140,22 @@ auto ValidateModule(const QString& path) -> bool { return true; };
 namespace GpgFrontend::Module {
 
 void LoadGpgFrontendModules(ModuleInitArgs) {
-  // give user ability to give up all modules
-  auto disable_loading_all_modules =
-      GetSettings().value("basic/disable_loading_all_modules", false).toBool();
-  if (disable_loading_all_modules) return;
+  const auto module_loading_policy =
+      GetSettings()
+          .value("basic/module_loading_policy", "only_integrated")
+          .toString();
+
+  if (module_loading_policy == "disable") {
+    LOG_I() << "module loading is disabled by user settings, abort...";
+    ModuleManager::GetInstance().SetNeedRegisterModulesNum(0);
+    return;
+  }
 
   // must init at default thread before core
   Thread::TaskRunnerGetter::GetInstance()
       .GetTaskRunner(Thread::TaskRunnerGetter::kTaskRunnerType_Module)
       ->PostTask(new Thread::Task(
-          [](const DataObjectPtr&) -> int {
+          [module_loading_policy](const DataObjectPtr&) -> int {
             QMap<QString, bool> modules;
 
             // if do self checking
@@ -166,7 +172,12 @@ void LoadGpgFrontendModules(ModuleInitArgs) {
               modules.insert(it->first, it->second);
             }
 
-            modules.insert(LoadExternalMods());
+            // if user want to load all modules, then check external modules
+            if (module_loading_policy == "all") {
+              LOG_I() << "loading external modules as well since user settings "
+                         "is set to load all modules";
+              modules.insert(LoadExternalMods());
+            }
 
             auto& manager = ModuleManager::GetInstance();
             manager.SetNeedRegisterModulesNum(static_cast<int>(modules.size()));

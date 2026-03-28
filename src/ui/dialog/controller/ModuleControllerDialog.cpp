@@ -106,10 +106,12 @@ ModuleControllerDialog::ModuleControllerDialog(QWidget* parent)
   ui_->tabWidget->setTabVisible(2, false);
 #endif
 
-  // give user ability to give up all modules
-  auto disable_loading_all_modules =
-      GetSettings().value("basic/disable_loading_all_modules", false).toBool();
-  if (disable_loading_all_modules) {
+  const auto module_loading_policy =
+      GetSettings()
+          .value("basic/module_loading_policy", "only_integrated")
+          .toString();
+
+  if (module_loading_policy == "disable") {
     ui_->tabWidget->setTabEnabled(0, false);
   }
 }
