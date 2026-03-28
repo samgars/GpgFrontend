@@ -50,8 +50,7 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
           --enable-silent-rules \
           --disable-dependency-tracking \
           --disable-tests \
-          --enable-fast-install
-      "
+          --enable-fast-install"
 
     BUILD_COMMAND make
     INSTALL_COMMAND make install
@@ -66,22 +65,20 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
 
     CONFIGURE_COMMAND
     bash -c
-    "cd ${CMAKE_CURRENT_SOURCE_DIR}/libassuan && \ 
-        ./autogen.sh"
+    "cd ${CMAKE_CURRENT_SOURCE_DIR}/libassuan && ./autogen.sh"
     &&
     bash -c
-    "cd ${CMAKE_CURRENT_BINARY_DIR}/libassuan && \ 
-        CFLAGS='-fPIC' ${CMAKE_CURRENT_SOURCE_DIR}/libassuan/configure \ 
-        --prefix=${DEPS_INSTALL_ROOT} \ 
+    "cd ${CMAKE_CURRENT_BINARY_DIR}/libassuan && \
+        CFLAGS='-fPIC' ${CMAKE_CURRENT_SOURCE_DIR}/libassuan/configure \
+        --prefix=${DEPS_INSTALL_ROOT} \
         --with-libgpg-error-prefix=${DEPS_INSTALL_ROOT} \
         --enable-maintainer-mode \
-        --enable-static \ 
+        --enable-static \
         --disable-shared \
         --enable-silent-rules \
         --disable-dependency-tracking \
         --disable-doc \
-        --enable-fast-install
-    "
+        --enable-fast-install"
 
     BUILD_COMMAND make
     INSTALL_COMMAND make install
@@ -103,8 +100,7 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
 
     CONFIGURE_COMMAND
     bash -c
-    "cd ${CMAKE_CURRENT_SOURCE_DIR}/gpgme && \
-        ./autogen.sh "
+    "cd ${CMAKE_CURRENT_SOURCE_DIR}/gpgme && ./autogen.sh "
     &&
     bash -c
     "cd ${CMAKE_CURRENT_BINARY_DIR}/gpgme && \
@@ -113,7 +109,7 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
         --with-libgpg-error-prefix=${DEPS_INSTALL_ROOT} \
         --with-libassuan-prefix=${DEPS_INSTALL_ROOT} \
         --enable-maintainer-mode \
-        --enable-static \ 
+        --enable-static \
         --disable-shared \
         --enable-silent-rules \
         --disable-dependency-tracking \
@@ -122,8 +118,7 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
         --disable-gpg-test \
         --disable-gpgsm-test \
         --disable-g13-test \
-        ${EXTRA_W32_GLIB}
-    "
+        ${EXTRA_W32_GLIB}"
 
     BUILD_COMMAND make
     INSTALL_COMMAND make install
