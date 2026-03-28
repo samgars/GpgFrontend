@@ -3,82 +3,54 @@
 ![Language](https://img.shields.io/badge/language-C%2B%2B-green)
 ![License](https://img.shields.io/badge/License-GPL--3.0-orange)
 [![Codacy Badge](https://app.codacy.com/project/badge/Grade/d1750e052a85430a8f1f84e58a0fceda)](https://www.codacy.com/gh/saturneric/GpgFrontend/dashboard?utm_source=github.com&utm_medium=referral&utm_content=saturneric/GpgFrontend&utm_campaign=Badge_Grade)
-[![Build Release](https://github.com/saturneric/GpgFrontend/actions/workflows/release.yml/badge.svg?branch=main)](https://github.com/saturneric/GpgFrontend/actions/workflows/release.yml)
-[![Build Nightly](https://github.com/saturneric/GpgFrontend/actions/workflows/testing-nightly.yml/badge.svg?branch=develop)](https://github.com/saturneric/GpgFrontend/actions/workflows/testing-nightly.yml)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/saturneric/GpgFrontend)
 
-GpgFrontend is a modern, cross-platform open-source GUI for OpenPGP encryption.
-It’s easy enough for beginners, powerful enough for experts and portable for
-anyone who values security and flexibility.
+A modern "Enigma" built on [GnuPG](https://www.gnupg.org/). It brings easy and
+trustworthy to your privacy life.
 
 <img width="100" height="100" align="right" style="position: absolute;right: 0;padding: 12px;top:12px;z-index: 1000;" src="https://image.cdn.bktus.com/i/2024/02/24/248b2e18-a120-692e-e6bc-42ca30be9011.webp" alt="GpgFrontend"/>
 
-**Key Features:**
+**Key Features**
 
-1. One-click encryption and signing: Quickly encrypt, decrypt and digitally sign
-   texts, files and emails
-2. Easy installation: Available via Homebrew, Flatpak, GitHub Releases, winget,
-   AUR, Microsoft Store and more
-3. True cross-platform experience: Native support for Windows, macOS and Linux;
-   can also be built on FreeBSD
-4. Fully portable: Run directly from a USB drive and move keys and settings
-   between Windows and Linux without hassle
-5. Secure key transfer: Safely migrate your keys and configurations across
-   devices
-6. Multiple independent key databases: Manage keys and identities separately for
-   different roles, projects or teams
-7. Comprehensive algorithm support: Includes RSA, DSA, EdDSA, ECDSA (NIST,
-   Brainpool), ECDH and other algorithms via the latest GnuPG
+- Easy: Encrypt and sign your texts, files and more.
+- Cross-platform: Native support for Windows, macOS and Linux.
+- Portable: Run directly from a USB drive and carry your keys.
+- Flexible: Manage keys separately through multiple key databases.
+- Privacy-focused: Using multiple approaches to enhance safety.
 
-If you like GpgFrontend, please star ⭐ it on GitHub, report issues or contribute
-code to help advance privacy and security for everyone.
+> If you like GpgFrontend, you can give it a ⭐ on GitHub as donation. :)
+
+**Planned Next Release:** 
+
+- v2.1.11 (before 2026-04-30) regular update with no major new features
+  but enhancements of modules APIs and security improvements.
 
 ## Table of Contents
 
 - [GpgFrontend](#gpgfrontend)
   - [Table of Contents](#table-of-contents)
   - [User Manual](#user-manual)
-  - [Developer Wiki](#developer-wiki)
-  - [Language Support](#language-support)
-    - [Supported Languages](#supported-languages)
+  - [Supported Languages](#supported-languages)
   - [Modules](#modules)
-  - [Contact](#contact)
   - [Contributing \& Bugs Report](#contributing--bugs-report)
-    - [Quick Start with GitHub Codespaces](#quick-start-with-github-codespaces)
-  - [Project Maintainer](#project-maintainer)
+    - [For Developers](#for-developers)
   - [Project's Logo](#projects-logo)
+  - [Mission and Origins](#mission-and-origins)
+  - [Project Maintainer](#project-maintainer)
   - [LICENSES](#licenses)
 
 ## User Manual
 
 For detailed instructions on installation, usage, and troubleshooting, please
-refer to the official [User
-Manual](https://www.gpgfrontend.bktus.com/overview/glance). The User Manual is
-the primary and most up-to-date resource for all users. It provides
-comprehensive guidance beyond what is found in the README, ensuring you have the
-latest information and best practices.
+refer to the [User Manual](https://www.gpgfrontend.bktus.com/overview/glance).
+The User Manual is the primary and most up-to-date resource for all users. It
+provides guidance beyond what is found in the README, ensuring you have the best
+practices.
 
 The source code for the user manual is maintained in this
 [repository](https://github.com/saturneric/GpgFrontend-Manual.git).
 
-## Developer Wiki
-
-[An AI-assisted Wiki](https://deepwiki.com/saturneric/GpgFrontend) has been
-generated through automated analysis of the GpgFrontend source code. This Wiki
-offers a comprehensive overview of the project’s technical architecture, design
-principles, and major components. The information provided is highly accurate,
-making it an excellent resource for both new and experienced contributors.
-
-I strongly recommend reading the Wiki carefully before exploring the source
-code in depth.
-
-## Language Support
-
-If you find an error in any of the translations or need to add a new one, we
-welcome you to [join our translation
-work](https://www.gpgfrontend.bktus.com/appendix/translate-interface).
-
-### Supported Languages
+## Supported Languages
 
 GpgFrontend currently supports an array of languages including:
 
@@ -87,26 +59,22 @@ GpgFrontend currently supports an array of languages including:
 - French
 - German
 - Italian
+- Spanish
 
 Contributors: [SHOW](TRANSLATORS)
+
+If you find an error in any of the translations or need to add a new one, we
+welcome you to [join our translation
+work](https://www.gpgfrontend.bktus.com/appendix/translate-interface).
 
 ## Modules
 
 GpgFrontend supports extensive module development, allowing users to customize
 their experience. Modules can encapsulate functionality, enabling users to
 enable or disable features as needed. Users can refer to existing module code
-for guidance and are encouraged to contribute to the [Module
+for guidance [Module
 Repository](https://github.com/saturneric/GpgFrontend-Modules.git) to reach a
 broader audience.
-
-As the development is still in its infancy, there are not enough modules and
-many API interfaces have not been stabilized. So the discussion is open for the
-development of new modules and the introduction of API interfaces.
-
-## Contact
-
-Please refer to [HERE](https://www.gpgfrontend.bktus.com/overview/contact) for
-my contact details.
 
 ## Contributing & Bugs Report
 
@@ -118,28 +86,41 @@ to register, you are welcome to communicate with me via email.
 
 [Contributing Guide](https://www.gpgfrontend.bktus.com/appendix/contribute)
 
-### Quick Start with GitHub Codespaces
+### For Developers
 
-[![Open in GitHub
-Codespaces](https://github.com/codespaces/badge.svg)](https://codespaces.new/saturneric/GpgFrontend)
+GpgFrontend's architecture and design are not easy for beginners, especially for
+developers who are not familiar with C++, Qt, and multithreading. I was
+struggling hard for these in the past few years as well. [An AI-assisted
+Wiki](https://deepwiki.com/saturneric/GpgFrontend) has been created through
+analysis of the GpgFrontend source code. This Wiki offers a comprehensive
+overview of the project’s technical architecture, design principles, and major
+components. I'd checked it and I would say that it can be of great help.
 
-With just one click, you can quickly launch a fully configured development
-environment in GitHub Codespaces.
+For setting up the development environment, please refer to the [Development
+Environment Setup Guide](https://gpgfrontend.bktus.com/appendix/setup-dev-env).
+
+## Project's Logo
+
+<img width="256" height="256" src="https://image.cdn.bktus.com/i/2024/02/24/f3f2f26a-96b4-65eb-960f-7ac3397a0a40.webp" alt="Logo"/>
+
+## Mission and Origins
+
+GpgFrontend inherits the codebase from the discontinued but easy-to-use
+**[gpg4usb](https://git.bktus.com/gpgfrontend/gpg4usb/)**. As described in my
+blog post _[“The Past and Present of GpgFrontend: My Journey with an Open-Source
+Encryption Tool”](https://blog.bktus.com/en/archives/u8hywl/)_, the project
+began with a simple question:
+
+> “What if everyone could have a small, reliable, and secure ‘crypto machine’. A
+> tool that makes encryption as tangible and trustworthy as turning a key in a
+> lock?”
 
 ## Project Maintainer
 
 [@Saturneric](https://github.com/saturneric)
 
-I’m always eager to hear your suggestions for improvement. My goal is to
-continuously enhance the usability of GpgFrontend and address critical issues
-effectively. Your feedback is highly valued and has a great chance of being
-implemented in the next release. Feel free to share your ideas and insights via
-Issues, email, or any other convenient method. Together, we can make GpgFrontend
-even better!
-
-## Project's Logo
-
-<img width="256" height="256" src="https://image.cdn.bktus.com/i/2024/02/24/f3f2f26a-96b4-65eb-960f-7ac3397a0a40.webp" alt="Logo"/>
+You can refer to [HERE](https://www.gpgfrontend.bktus.com/overview/contact) for
+my contact details.
 
 ## LICENSES
 
