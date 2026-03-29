@@ -182,7 +182,9 @@ auto GFBuffer::Left(ssize_t len) const -> GFBuffer {
 }
 
 auto GFBuffer::Mid(ssize_t pos, ssize_t len) const -> GFBuffer {
-  if (pos < 0 || len <= 0 || pos >= impl_->sec_size_) return {};
+  if (pos < 0 || len <= 0 || pos >= static_cast<ssize_t>(impl_->sec_size_)) {
+    return {};
+  }
 
   len = std::min(len, static_cast<ssize_t>(impl_->sec_size_ - pos));
   auto ret = GFBuffer(len);
