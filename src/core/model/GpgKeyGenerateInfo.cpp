@@ -30,8 +30,6 @@
 
 #include <cassert>
 
-#include "core/module/ModuleManager.h"
-#include "core/utils/CommonUtils.h"
 #include "core/utils/GpgUtils.h"
 
 namespace GpgFrontend {
@@ -98,19 +96,42 @@ const QContainer<KeyAlgo> KeyGenerateInfo::kSubKeyAlgos = {
     {"elg2048", "ELG-E", "ELG-E", 2048, kENCRYPT, "2.2.0"},
     {"elg3072", "ELG-E", "ELG-E", 3072, kENCRYPT, "2.2.0"},
     {"elg4096", "ELG-E", "ELG-E", 4096, kENCRYPT, "2.2.0"},
+};
 
-    // For classic algorithms, key_length is the key or curve size.
-    // For hybrid PQC algorithms like ky768_* / ky1024_*,
-    // key_length stores the ML-KEM parameter set identifier, not ECC curve
-    // bits.
-    {"ky768_cv25519", "Kyber-768 + Curve25519", "HYBRID-KEM", 768, kENCRYPT,
-     "2.5.x"},
-    {"ky768_bp256", "Kyber-768 + BrainpoolP256r1", "HYBRID-KEM", 768, kENCRYPT,
-     "2.5.x"},
-    {"ky1024_bp512", "Kyber-1024 + BrainpoolP512r1", "HYBRID-KEM", 1024,
-     kENCRYPT, "2.5.x"},
-    {"ky1024_cv448", "Kyber-1024 + X448", "HYBRID-KEM", 1024, kENCRYPT,
-     "2.5.x"},
+// Refer: https://lists.gnupg.org/pipermail/gnupg-devel/2024-May/035537.html
+const QContainer<KeyAlgo> KeyGenerateInfo::kHybridSubKeyAlgos = {
+    {"ky768",
+     "Kyber",
+     "HYBRID-KEM",
+     768,
+     kENCRYPT,
+     "2.5.0",
+     {
+         kSubKeyAlgos[9],   // cv25519
+         kSubKeyAlgos[10],  // nistp256
+         kSubKeyAlgos[11],  // nistp384
+         kSubKeyAlgos[12],  // nistp521
+         kSubKeyAlgos[13],  // brainpoolp256r1
+         kSubKeyAlgos[14],  // brainpoolp384r1
+         kSubKeyAlgos[15],  // brainpoolp512r1
+         kSubKeyAlgos[16],  // x448
+     }},
+    {"kyber1024",
+     "Kyber",
+     "HYBRID-KEM",
+     1024,
+     kENCRYPT,
+     "2.5.0",
+     {
+         kSubKeyAlgos[9],   // cv25519
+         kSubKeyAlgos[10],  // nistp256
+         kSubKeyAlgos[11],  // nistp384
+         kSubKeyAlgos[12],  // nistp521
+         kSubKeyAlgos[13],  // brainpoolp256r1
+         kSubKeyAlgos[14],  // brainpoolp384r1
+         kSubKeyAlgos[15],  // brainpoolp512r1
+         kSubKeyAlgos[16],  // x448
+     }},
 };
 
 auto KeyGenerateInfo::GetSupportedKeyAlgo(int channel) -> QContainer<KeyAlgo> {
@@ -134,6 +155,13 @@ auto KeyGenerateInfo::GetSupportedSubkeyAlgo(int channel)
   QContainer<KeyAlgo> algos;
 
   for (const auto &algo : kSubKeyAlgos) {
+    if (!CheckGpgVersion(channel, algo.SupportedVersion())) continue;
+
+    algos.append(algo);
+  }
+
+  // Add hybrid subkey algos if supported by current GPG version
+  for (const auto &algo : kHybridSubKeyAlgos) {
     if (!CheckGpgVersion(channel, algo.SupportedVersion())) continue;
 
     algos.append(algo);
@@ -474,12 +502,13 @@ void KeyGenerateInfo::SetAllowAuth(bool m_allow_authentication) {
 }
 
 KeyAlgo::KeyAlgo(QString id, QString name, QString type, int length, int opera,
-                 QString supported_version)
+                 QString supported_version, QContainer<KeyAlgo> sub_algos)
     : id_(std::move(id)),
       name_(std::move(name)),
       type_(std::move(type)),
       length_(length),
-      supported_version_(std::move(supported_version)) {
+      supported_version_(std::move(supported_version)),
+      sub_algos_(std::move(sub_algos)) {
   encrypt_ = ((opera & kENCRYPT) != 0);
   sign_ = ((opera & kSIGN) != 0);
   auth_ = ((opera & kAUTH) != 0);
@@ -506,5 +535,17 @@ auto KeyAlgo::SupportedVersion() const -> QString { return supported_version_; }
 
 auto KeyAlgo::operator==(const KeyAlgo &o) const -> bool {
   return this->id_ == o.id_;
+}
+
+[[nodiscard]] auto KeyAlgo::SubAlgos() const -> QContainer<KeyAlgo> {
+  return sub_algos_;
+}
+
+[[nodiscard]] auto KeyGenerateInfo::SubAlgo() const -> const KeyAlgo & {
+  return sub_algo_;
+}
+
+void KeyGenerateInfo::SetSubAlgo(const KeyAlgo &sub_algo) {
+  sub_algo_ = sub_algo;
 }
 }  // namespace GpgFrontend

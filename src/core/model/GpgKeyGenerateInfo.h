@@ -37,7 +37,7 @@ class GF_CORE_EXPORT KeyAlgo {
   KeyAlgo() = default;
 
   KeyAlgo(QString id, QString name, QString type, int length, int opera,
-          QString supported_version);
+          QString supported_version, QContainer<KeyAlgo> sub_algos = {});
 
   KeyAlgo(const KeyAlgo &) = default;
 
@@ -63,6 +63,8 @@ class GF_CORE_EXPORT KeyAlgo {
 
   [[nodiscard]] auto SupportedVersion() const -> QString;
 
+  [[nodiscard]] auto SubAlgos() const -> QContainer<KeyAlgo>;
+
  private:
   QString id_;
   QString name_;
@@ -73,6 +75,9 @@ class GF_CORE_EXPORT KeyAlgo {
   bool auth_;
   bool cert_;
   QString supported_version_;
+
+  // for hybrid algorithms
+  QContainer<KeyAlgo> sub_algos_;
 };
 
 class GF_CORE_EXPORT KeyGenerateInfo : public QObject {
@@ -81,6 +86,7 @@ class GF_CORE_EXPORT KeyGenerateInfo : public QObject {
   static const KeyAlgo kNoneAlgo;
   static const QContainer<KeyAlgo> kPrimaryKeyAlgos;
   static const QContainer<KeyAlgo> kSubKeyAlgos;
+  static const QContainer<KeyAlgo> kHybridSubKeyAlgos;
 
   /**
    * @brief Construct a new Gen Key Info object
@@ -351,13 +357,27 @@ class GF_CORE_EXPORT KeyGenerateInfo : public QObject {
    */
   [[nodiscard]] auto IsAllowModifyAuth() const -> bool;
 
+  /**
+   * @brief
+   *
+   * @return const KeyAlgo&
+   */
+  [[nodiscard]] auto SubAlgo() const -> const KeyAlgo &;
+
+  /**
+   * @brief Set the Sub Algo object
+   *
+   */
+  void SetSubAlgo(const KeyAlgo &);
+
  private:
   bool subkey_ = false;  ///<
   QString name_;         ///<
   QString email_;        ///<
   QString comment_;      ///<
 
-  KeyAlgo algo_;  ///<
+  KeyAlgo algo_;      ///<
+  KeyAlgo sub_algo_;  ///< for hybrid subkey
   QDateTime expired_;
   bool non_expired_ = false;  ///<
 

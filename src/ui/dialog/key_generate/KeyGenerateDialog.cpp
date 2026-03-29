@@ -131,7 +131,8 @@ auto EasyModeConfFromJson(const QJsonObject& obj)
   conf.hidden = obj.value("hidden").toBool(false);
 
   if (!subkey.isEmpty() && subkey.contains("algo") &&
-      subkey.contains("validity")) {
+      subkey.contains("validity") &&
+      !subkey.value("algo").toString().trimmed().isEmpty()) {
     conf.has_s_key = true;
 
     auto raw_s_algo = subkey.value("algo").toString().trimmed();
@@ -140,12 +141,17 @@ auto EasyModeConfFromJson(const QJsonObject& obj)
     if (s_found) {
       conf.s_key_algo = s_algo.Id();
     } else {
-      LOG_W() << "invalid subkey algo from json: " << raw_algo
+      LOG_W() << "invalid subkey algo from json: " << raw_s_algo
               << "ignoreing config...";
       return std::nullopt;
     }
 
     conf.s_key_validity = subkey.value("validity").toString();
+  } else {
+    // if we don't set it explicitly, it may be defaulted to true or false by
+    // compiler, which may cause unexpected behavior. So we set it explicitly to
+    // false here.
+    conf.has_s_key = false;
   }
   return conf;
 }

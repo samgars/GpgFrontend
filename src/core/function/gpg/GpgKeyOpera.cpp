@@ -240,6 +240,14 @@ auto GenerateSubKeyImpl(GpgContext& ctx, const GpgKeyPtr& key,
   }
 
   auto algo = params->GetAlgo().Id();
+  LOG_D() << "primary subkey algo: " << algo
+          << ", sub algo: " << params->SubAlgo().Id();
+
+  if (params->SubAlgo().Id() != KeyGenerateInfo::kNoneAlgo.Id()) {
+    algo += "_" + params->SubAlgo().Id();
+    LOG_D() << "hybrid subkey algo: " << algo;
+  }
+
   unsigned long expires =
       QDateTime::currentDateTime().secsTo(params->GetExpireTime());
   unsigned int flags = 0;

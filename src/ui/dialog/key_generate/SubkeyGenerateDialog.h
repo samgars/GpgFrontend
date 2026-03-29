@@ -32,7 +32,6 @@
 #include "core/model/GpgKey.h"
 #include "core/model/GpgKeyGenerateInfo.h"
 #include "core/typedef/GpgTypedef.h"
-#include "core/utils/MemoryUtils.h"
 #include "ui/dialog/GeneralDialog.h"
 
 class Ui_SubkeyGenDialog;
@@ -80,6 +79,11 @@ class SubkeyGenerateDialog : public GeneralDialog {
    * @details Refresh widgets state by GenKeyInfo
    */
   void refresh_widgets_state();
+
+  /**
+   * @details Refresh hybrid subkey algo related widgets state
+   */
+  void refresh_hybrid_algo_widgets_state();
 };
 
 }  // namespace GpgFrontend::UI
