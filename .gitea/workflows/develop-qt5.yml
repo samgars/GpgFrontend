@@ -39,7 +39,7 @@ jobs:
   build:
     runs-on: ubuntu-latest-server
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           lfs: "false"
           submodules: recursive
