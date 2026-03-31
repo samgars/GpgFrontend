@@ -5480,7 +5480,7 @@ Wenn das Problem weiterhin besteht, wenden Sie sich an den technischen Support o
     <message>
         <location filename="../../../../src/ui/main_window/MainWindowUI.cpp" line="300"/>
         <source>Open Smart Card Controller</source>
-        <translation>Offener Chipkarten-Controller</translation>
+        <translation>Chipkarten-Controller öffnen</translation>
     </message>
     <message>
         <location filename="../../../../src/ui/main_window/MainWindowUI.cpp" line="301"/>
