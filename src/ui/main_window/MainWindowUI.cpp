@@ -287,12 +287,6 @@ void MainWindow::create_actions() {
   connect(about_act_, &QAction::triggered, this,
           [=]() { new AboutDialog(0, this); });
 
-  translate_act_ =
-      create_action("translate", tr("Translate"), ":/icons/translate.png",
-                    tr("Information about translation"));
-  connect(translate_act_, &QAction::triggered, this,
-          [=]() { new AboutDialog(tr("Translators"), this); });
-
   start_wizard_act_ =
       create_action("start_wizard", tr("Open Wizard"), ":/icons/wizard.png",
                     tr("Open the wizard"));
@@ -472,7 +466,6 @@ void MainWindow::create_menus() {
   help_menu_->addAction(start_wizard_act_);
   help_menu_->addSeparator();
 
-  help_menu_->addAction(translate_act_);
   help_menu_->addAction(about_act_);
 
   Module::TriggerEvent(
