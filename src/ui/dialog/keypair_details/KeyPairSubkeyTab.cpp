@@ -250,7 +250,6 @@ void KeyPairSubkeyTab::slot_refresh_subkey_list() {
 
     if (row == 0) {
       for (auto i = 0; i < subkey_list_->columnCount(); i++) {
-        subkey_list_->item(row, i)->setForeground(QColor(65, 105, 255));
         for (auto i = 0; i < subkey_list_->columnCount(); i++) {
           auto font = subkey_list_->item(row, i)->font();
           font.setBold(true);
