@@ -45,15 +45,7 @@
 
 namespace GpgFrontend {
 
-void DestroyGpgFrontendCore() {
-  // stop all task runner
-  Thread::TaskRunnerGetter::GetInstance().StopAllTeakRunner();
-
-  CacheManager::GetInstance().FlushCacheStorage();
-
-  // destroy all singleton objects
-  SingletonStorageCollection::Destroy();
-}
+namespace {
 
 auto VerifyGpgconfPath(const QFileInfo& gnupg_install_fs_path) -> bool {
   return gnupg_install_fs_path.isAbsolute() && gnupg_install_fs_path.exists() &&
@@ -102,137 +94,6 @@ auto GetDefaultKeyDatabasePath(const QString& gpgconf_path) -> QString {
                         default_db_path);
 
   return default_db_path;
-}
-
-auto InitGpgME() -> bool {
-  const auto* ver = gpgme_check_version(nullptr);
-  if (ver == nullptr) {
-    LOG_E() << "gpgme_check_version() failed, abort...";
-    return false;
-    ;
-  }
-  Module::UpsertRTValue("core", "gpgme.version", QString(ver));
-
-  // require gnupg version > 2.1.0
-  if (gpgme_set_global_flag("require-gnupg", "2.1.0") != 0) {
-    LOG_E() << "gpgme_set_global_flag() with argument 'require-gnupg' failed, "
-               "abort...";
-    return false;
-  }
-
-#ifdef Q_OS_WINDOWS
-  auto w32spawn_dir =
-      GlobalSettingStation::GetInstance().GetAppDir() + "/../gnupg/bin";
-  if (gpgme_set_global_flag("w32-inst-dir",
-                            w32spawn_dir.toUtf8().constData()) != 0) {
-    LOG_E() << "gpgme_set_global_flag() with argument 'w32spawn_dir' failed, "
-               "abort...";
-    return false;
-  }
-#endif
-
-  if (CheckGpgError(
-          gpgme_set_locale(nullptr, LC_CTYPE, setlocale(LC_CTYPE, nullptr))) !=
-      GPG_ERR_NO_ERROR) {
-    LOG_E() << "gpgme_set_locale() with argument LC_CTYPE failed, abort...";
-    return false;
-  }
-
-#ifdef LC_MESSAGES
-  if (CheckGpgError(gpgme_set_locale(nullptr, LC_MESSAGES,
-                                     setlocale(LC_MESSAGES, nullptr))) !=
-      GPG_ERR_NO_ERROR) {
-    LOG_E() << "gpgme_set_locale() with argument LC_MESSAGES failed, abort...";
-    return false;
-  }
-#endif
-
-  gpgme_ctx_t p_ctx;
-  if (CheckGpgError(gpgme_new(&p_ctx)) != GPG_ERR_NO_ERROR) {
-    LOG_E() << "gpgme_new() failed, abort...";
-    return false;
-  }
-
-  // get engine info
-  auto* engine_info = gpgme_ctx_get_engine_info(p_ctx);
-  if (engine_info == nullptr) {
-    LOG_E() << "gpgme_ctx_get_engine_info() failed, abort...";
-    return false;
-  }
-
-  // Check ENV before running
-  bool has_gpgconf = false;
-  bool has_openpgp = false;
-
-  while (engine_info != nullptr) {
-    if (strcmp(engine_info->version, "1.0.0") == 0) {
-      engine_info = engine_info->next;
-      continue;
-    }
-
-    switch (engine_info->protocol) {
-      case GPGME_PROTOCOL_OpenPGP:
-        has_openpgp = true;
-
-        Module::UpsertRTValue("core", "gpgme.engine.openpgp", 1);
-        Module::UpsertRTValue("core", "gpgme.ctx.app_path",
-                              QString(engine_info->file_name));
-        Module::UpsertRTValue("core", "gpgme.ctx.gnupg_version",
-                              QString(engine_info->version));
-        Module::UpsertRTValue(
-            "core", "gpgme.ctx.default_database_path",
-            QString(engine_info->home_dir == nullptr ? ""
-                                                     : engine_info->home_dir));
-        break;
-      case GPGME_PROTOCOL_CMS:
-        Module::UpsertRTValue("core", "gpgme.engine.cms", 1);
-        Module::UpsertRTValue("core", "gpgme.ctx.cms_path",
-                              QString(engine_info->file_name));
-
-        break;
-      case GPGME_PROTOCOL_GPGCONF:
-        has_gpgconf = true;
-
-        Module::UpsertRTValue("core", "gpgme.engine.gpgconf", 1);
-        Module::UpsertRTValue("core", "gpgme.ctx.gpgconf_path",
-                              QString(engine_info->file_name));
-        break;
-      case GPGME_PROTOCOL_ASSUAN:
-      case GPGME_PROTOCOL_G13:
-      case GPGME_PROTOCOL_UISERVER:
-      case GPGME_PROTOCOL_SPAWN:
-      case GPGME_PROTOCOL_DEFAULT:
-      case GPGME_PROTOCOL_UNKNOWN:
-        break;
-    }
-    engine_info = engine_info->next;
-  }
-
-  // release gpgme context
-  gpgme_release(p_ctx);
-
-  const auto gnupg_version = Module::RetrieveRTValueTypedOrDefault<>(
-      "core", "gpgme.ctx.gnupg_version", QString{"0.0.0"});
-  const auto gpgconf_path = Module::RetrieveRTValueTypedOrDefault<>(
-      "core", "gpgme.ctx.gnupg_version", QString{});
-
-  if (!has_gpgconf) {
-    LOG_E() << "cannot get gpgconf backend engine, abort...";
-    return false;
-  }
-
-  if (!has_openpgp) {
-    LOG_E() << "cannot get openpgp backend engine, abort...";
-    return false;
-  }
-
-  // ensure, and check twice: only support gpg > 2.1.0
-  if (!(GFCompareSoftwareVersion(gnupg_version, "2.1.0") >= 0)) {
-    FLOG_F("gpgme env check failed, abort");
-    return false;
-  }
-
-  return true;
 }
 
 auto RefreshGpgMEBackendEngine(const QString& gpgconf_path,
@@ -374,6 +235,8 @@ auto DecideGnuPGPath(const QString& default_gnupg_path) -> QString {
   return default_gnupg_path;
 }
 
+}  // namespace
+
 auto InitBasicPath() -> bool {
   auto default_gpgconf_path = Module::RetrieveRTValueTypedOrDefault<>(
       "core", "gpgme.ctx.gpgconf_path", QString{});
@@ -445,6 +308,137 @@ auto InitBasicPath() -> bool {
                         QString(target_gnupg_path));
   Module::UpsertRTValue("core", "gpgme.ctx.default_database_path",
                         QString(default_home_path));
+
+  return true;
+}
+
+auto InitGpgME() -> bool {
+  const auto* ver = gpgme_check_version(nullptr);
+  if (ver == nullptr) {
+    LOG_E() << "gpgme_check_version() failed, abort...";
+    return false;
+    ;
+  }
+  Module::UpsertRTValue("core", "gpgme.version", QString(ver));
+
+  // require gnupg version > 2.1.0
+  if (gpgme_set_global_flag("require-gnupg", "2.1.0") != 0) {
+    LOG_E() << "gpgme_set_global_flag() with argument 'require-gnupg' failed, "
+               "abort...";
+    return false;
+  }
+
+#ifdef Q_OS_WINDOWS
+  auto w32spawn_dir =
+      GlobalSettingStation::GetInstance().GetAppDir() + "/../gnupg/bin";
+  if (gpgme_set_global_flag("w32-inst-dir",
+                            w32spawn_dir.toUtf8().constData()) != 0) {
+    LOG_E() << "gpgme_set_global_flag() with argument 'w32spawn_dir' failed, "
+               "abort...";
+    return false;
+  }
+#endif
+
+  if (CheckGpgError(
+          gpgme_set_locale(nullptr, LC_CTYPE, setlocale(LC_CTYPE, nullptr))) !=
+      GPG_ERR_NO_ERROR) {
+    LOG_E() << "gpgme_set_locale() with argument LC_CTYPE failed, abort...";
+    return false;
+  }
+
+#ifdef LC_MESSAGES
+  if (CheckGpgError(gpgme_set_locale(nullptr, LC_MESSAGES,
+                                     setlocale(LC_MESSAGES, nullptr))) !=
+      GPG_ERR_NO_ERROR) {
+    LOG_E() << "gpgme_set_locale() with argument LC_MESSAGES failed, abort...";
+    return false;
+  }
+#endif
+
+  gpgme_ctx_t p_ctx;
+  if (CheckGpgError(gpgme_new(&p_ctx)) != GPG_ERR_NO_ERROR) {
+    LOG_E() << "gpgme_new() failed, abort...";
+    return false;
+  }
+
+  // get engine info
+  auto* engine_info = gpgme_ctx_get_engine_info(p_ctx);
+  if (engine_info == nullptr) {
+    LOG_E() << "gpgme_ctx_get_engine_info() failed, abort...";
+    return false;
+  }
+
+  // Check ENV before running
+  bool has_gpgconf = false;
+  bool has_openpgp = false;
+
+  while (engine_info != nullptr) {
+    if (strcmp(engine_info->version, "1.0.0") == 0) {
+      engine_info = engine_info->next;
+      continue;
+    }
+
+    switch (engine_info->protocol) {
+      case GPGME_PROTOCOL_OpenPGP:
+        has_openpgp = true;
+
+        Module::UpsertRTValue("core", "gpgme.engine.openpgp", 1);
+        Module::UpsertRTValue("core", "gpgme.ctx.app_path",
+                              QString(engine_info->file_name));
+        Module::UpsertRTValue("core", "gpgme.ctx.gnupg_version",
+                              QString(engine_info->version));
+        Module::UpsertRTValue(
+            "core", "gpgme.ctx.default_database_path",
+            QString(engine_info->home_dir == nullptr ? ""
+                                                     : engine_info->home_dir));
+        break;
+      case GPGME_PROTOCOL_CMS:
+        Module::UpsertRTValue("core", "gpgme.engine.cms", 1);
+        Module::UpsertRTValue("core", "gpgme.ctx.cms_path",
+                              QString(engine_info->file_name));
+
+        break;
+      case GPGME_PROTOCOL_GPGCONF:
+        has_gpgconf = true;
+
+        Module::UpsertRTValue("core", "gpgme.engine.gpgconf", 1);
+        Module::UpsertRTValue("core", "gpgme.ctx.gpgconf_path",
+                              QString(engine_info->file_name));
+        break;
+      case GPGME_PROTOCOL_ASSUAN:
+      case GPGME_PROTOCOL_G13:
+      case GPGME_PROTOCOL_UISERVER:
+      case GPGME_PROTOCOL_SPAWN:
+      case GPGME_PROTOCOL_DEFAULT:
+      case GPGME_PROTOCOL_UNKNOWN:
+        break;
+    }
+    engine_info = engine_info->next;
+  }
+
+  // release gpgme context
+  gpgme_release(p_ctx);
+
+  const auto gnupg_version = Module::RetrieveRTValueTypedOrDefault<>(
+      "core", "gpgme.ctx.gnupg_version", QString{"0.0.0"});
+  const auto gpgconf_path = Module::RetrieveRTValueTypedOrDefault<>(
+      "core", "gpgme.ctx.gnupg_version", QString{});
+
+  if (!has_gpgconf) {
+    LOG_E() << "cannot get gpgconf backend engine, abort...";
+    return false;
+  }
+
+  if (!has_openpgp) {
+    LOG_E() << "cannot get openpgp backend engine, abort...";
+    return false;
+  }
+
+  // ensure, and check twice: only support gpg > 2.1.0
+  if (!(GFCompareSoftwareVersion(gnupg_version, "2.1.0") >= 0)) {
+    FLOG_F("gpgme env check failed, abort");
+    return false;
+  }
 
   return true;
 }
@@ -676,6 +670,16 @@ void StartMonitorCoreInitializationStatus() {
   GpgFrontend::Thread::TaskRunnerGetter::GetInstance()
       .GetTaskRunner(Thread::TaskRunnerGetter::kTaskRunnerType_External_Process)
       ->PostTask(task);
+}
+
+void DestroyGpgFrontendCore() {
+  // stop all task runner
+  Thread::TaskRunnerGetter::GetInstance().StopAllTeakRunner();
+
+  CacheManager::GetInstance().FlushCacheStorage();
+
+  // destroy all singleton objects
+  SingletonStorageCollection::Destroy();
 }
 
 }  // namespace GpgFrontend
