@@ -119,6 +119,14 @@ auto GF_CORE_EXPORT GetCanonicalKeyDatabasePath(const QDir& app_path,
                                                 const QString& path) -> QString;
 
 /**
+ * @brief
+ *
+ * @return QContainer<KeyDatabaseInfo>
+ */
+auto GF_CORE_EXPORT GetAllKeyDatabaseInfoBySettings()
+    -> QContainer<KeyDatabaseInfo>;
+
+/**
  * @brief Get the Key Databases By Settings object
  *
  * @return QContainer<KeyDatabaseItemSO>

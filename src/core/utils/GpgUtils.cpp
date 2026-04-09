@@ -312,7 +312,7 @@ auto GetCanonicalKeyDatabasePath(const QDir& app_path, const QString& path)
   return {};
 }
 
-auto GetKeyDatabaseInfoBySettings() -> QContainer<KeyDatabaseInfo> {
+auto GetAllKeyDatabaseInfoBySettings() -> QContainer<KeyDatabaseInfo> {
   auto key_dbs = GetKeyDatabasesBySettings();
 
   QContainer<KeyDatabaseInfo> key_db_infos;
@@ -328,20 +328,28 @@ auto GetKeyDatabaseInfoBySettings() -> QContainer<KeyDatabaseInfo> {
     auto key_database_fs_path =
         GetCanonicalKeyDatabasePath(app_path, key_database.path);
 
-    if (key_database_fs_path.isEmpty()) {
-      LOG_E() << "cannot use target path" << key_database.path
-              << "as key database";
-      continue;
-    }
-
     KeyDatabaseInfo key_db_info;
     key_db_info.name = key_database.name;
     key_db_info.path = key_database_fs_path;
     key_db_info.origin_path = key_database.path;
+    key_db_info.valid = !key_database_fs_path.isEmpty();
     key_db_infos.append(key_db_info);
 
     LOG_D() << "plan to load gpg key database:" << key_database_fs_path;
   }
+
+  return key_db_infos;
+}
+
+auto GetKeyDatabaseInfoBySettings() -> QContainer<KeyDatabaseInfo> {
+  auto key_db_infos = GetAllKeyDatabaseInfoBySettings();
+
+  // filter out invalid key databases
+  key_db_infos.erase(std::remove_if(key_db_infos.begin(), key_db_infos.end(),
+                                    [](const auto& key_db_info) -> auto {
+                                      return !key_db_info.valid;
+                                    }),
+                     key_db_infos.end());
 
   return key_db_infos;
 }
