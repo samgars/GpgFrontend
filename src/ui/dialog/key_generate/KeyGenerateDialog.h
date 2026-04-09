@@ -124,6 +124,12 @@ class KeyGenerateDialog : public GeneralDialog {
    */
   void slot_delete_easy_profile_config();
 
+  /**
+   * @brief
+   *
+   */
+  void slot_reset_easy_profile_config_to_default();
+
  private:
   struct ExpireOption {
     QString key;      // "2y"

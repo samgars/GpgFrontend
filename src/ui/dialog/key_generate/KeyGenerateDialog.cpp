@@ -28,11 +28,9 @@
 
 #include "KeyGenerateDialog.h"
 
-#include "core/function/GlobalSettingStation.h"
 #include "core/function/gpg/GpgKeyOpera.h"
 #include "core/model/CacheObject.h"
 #include "core/typedef/GpgTypedef.h"
-#include "core/utils/CacheUtils.h"
 #include "core/utils/CommonUtils.h"
 #include "core/utils/GpgUtils.h"
 #include "ui/UISignalStation.h"
@@ -48,55 +46,28 @@ namespace {
 const int kProfileNameMaxLen = 32;
 
 auto MakeDefaultEasyModeConf() -> QJsonArray {
+  auto make_entry = [](const QString& name, QString p_algo, QString s_algo = "",
+                       bool hidden = false) -> QJsonObject {
+    QJsonObject obj;
+    obj["name"] = name;
+    obj["primary"] = QJsonObject{{"algo", p_algo}, {"validity", "2y"}};
+    if (!s_algo.isEmpty()) {
+      obj["subkey"] = QJsonObject{{"algo", s_algo}, {"validity", "2y"}};
+    }
+    obj["hidden"] = hidden;
+    return obj;
+  };
+
   return QJsonArray{
-      QJsonObject{
-          {"name", "RSA-2048 (Standard)"},
-          {"primary", QJsonObject{{"algo", "RSA2048"}, {"validity", "2y"}}},
-          {"hidden", false},
-      },
-      QJsonObject{
-          {"name", "RSA-3072 (Recommended)"},
-          {"primary", QJsonObject{{"algo", "RSA3072"}, {"validity", "2y"}}},
-          {"hidden", false},
-      },
-      QJsonObject{
-          {"name", "ECC-25519 (Modern & Secure)"},
-          {"primary", QJsonObject{{"algo", "ED25519"}, {"validity", "2y"}}},
-          {"subkey", QJsonObject{{"algo", "CV25519"}, {"validity", "2y"}}},
-          {"hidden", false},
-      },
-      QJsonObject{
-          {"name", "ECC-384 (NIST)"},
-          {"primary", QJsonObject{{"algo", "NISTP384"}, {"validity", "2y"}}},
-          {"subkey", QJsonObject{{"algo", "NISTP384"}, {"validity", "2y"}}},
-          {"hidden", false},
-      },
-      QJsonObject{
-          {"name", "ECC-256 (EU/Brainpool)"},
-          {"primary",
-           QJsonObject{
-               {"algo", "BRAINPOOLP256R1"},
-               {"validity", "2y"},
-           }},
-          {"subkey",
-           QJsonObject{
-               {"algo", "BRAINPOOLP256R1"},
-               {"validity", "2y"},
-           }},
-          {"hidden", false},
-      },
-      QJsonObject{
-          {"name", "ECC-448 (Highest Security, Niche)"},
-          {"primary", QJsonObject{{"algo", "ED448"}, {"validity", "2y"}}},
-          {"subkey", QJsonObject{{"algo", "X448"}, {"validity", "2y"}}},
-          {"hidden", false},
-      },
-      QJsonObject{
-          {"name", "DSA-2048 + ELG-2048 (Legacy Only)"},
-          {"primary", QJsonObject{{"algo", "DSA2048"}, {"validity", "2y"}}},
-          {"subkey", QJsonObject{{"algo", "ELG2048"}, {"validity", "2y"}}},
-          {"hidden", false},
-      },
+      make_entry("Ed25519 / X25519 (Modern & Fast)", "ED25519", "CV25519"),
+      make_entry("RSA-3072 (Balanced)", "RSA3072"),
+      make_entry("NIST P-384 (Standard)", "NISTP384", "NISTP384"),
+      make_entry("Brainpool P-256 (EU Standard)", "BRAINPOOLP256R1",
+                 "BRAINPOOLP256R1"),
+      make_entry("RSA-4096 (Higher Security)", "RSA4096"),
+      make_entry("Ed448 (High Security)", "ED448", "X448"),
+      make_entry("RSA-2048 (Legacy)", "RSA2048", ""),
+      make_entry("DSA-2048 + ELG-2048 (Deprecated)", "DSA2048", "ELG2048"),
   };
 }
 
@@ -207,19 +178,25 @@ KeyGenerateDialog::KeyGenerateDialog(int channel, QWidget* parent)
       tr("Primary Key With Subkey"),
   });
 
+  ui_->profileGroupBox->setTitle(tr("Profile"));
+  ui_->basicGroupBox->setTitle(tr("Basic"));
+
   ui_->nameLabel->setText(tr("Name"));
   ui_->emailLabel->setText(tr("Email"));
   ui_->commentLabel->setText(tr("Comment"));
   ui_->keyDBLabel->setText(tr("Key Database"));
-  ui_->easyProfileLabel->setText(tr("Profile"));
+  ui_->easyProfileLabel->setText(tr("Name"));
   ui_->combinationLabel->setText(tr("Combination"));
   ui_->easyValidPeriodLabel->setText(tr("Validity Period"));
 
-  ui_->savePushButton->setText(tr("Save Profile"));
+  ui_->savePushButton->setText(tr("Save"));
   ui_->savePushButton->setToolTip(
       tr("Save current configuration as a new profile"));
-  ui_->deletePushButton->setText(tr("Delete Profile"));
+  ui_->deletePushButton->setText(tr("Delete"));
   ui_->deletePushButton->setToolTip(tr("Delete current selected profile"));
+  ui_->reset2DefaultPushButton->setText(tr("Reset To Default"));
+  ui_->reset2DefaultPushButton->setToolTip(
+      tr("Reset profile list to default configuration"));
 
   ui_->pAlgoLabel->setText(tr("Algorithm"));
   ui_->pExpireDateLabel->setText(tr("Validity Period"));
@@ -710,6 +687,9 @@ void KeyGenerateDialog::set_signal_slot_config() {
 
   connect(ui_->deletePushButton, &QPushButton::clicked, this,
           &KeyGenerateDialog::slot_delete_easy_profile_config);
+
+  connect(ui_->reset2DefaultPushButton, &QPushButton::clicked, this,
+          &KeyGenerateDialog::slot_reset_easy_profile_config_to_default);
 }
 
 void KeyGenerateDialog::sync_gen_key_algo_info() {
@@ -991,7 +971,7 @@ void KeyGenerateDialog::slot_save_as_easy_profile_config() {
   }
 
   bool exists = std::any_of(easy_mode_conf_.begin(), easy_mode_conf_.end(),
-                            [&](const EasyModeConf& existing) {
+                            [&](const EasyModeConf& existing) -> bool {
                               return existing.name.trimmed().compare(
                                          profile_name.trimmed(),
                                          Qt::CaseInsensitive) == 0;
@@ -1055,5 +1035,25 @@ void KeyGenerateDialog::flush_easy_profile_config_cache() {
   }
 
   cache.setArray(array);
+}
+
+void KeyGenerateDialog::slot_reset_easy_profile_config_to_default() {
+  auto reply = QMessageBox::question(
+      this, tr("Reset To Default"),
+      tr("Are you sure you want to reset the easy profile configuration to "
+         "default? This action cannot be undone."),
+      QMessageBox::Yes | QMessageBox::No);
+
+  if (reply != QMessageBox::Yes) {
+    return;
+  }
+
+  {
+    CacheObject cache("key_gen_easy_mode_config");
+    cache.setArray(MakeDefaultEasyModeConf());
+  }
+
+  easy_mode_conf_ = {};
+  load_easy_profile_config();
 }
 }  // namespace GpgFrontend::UI
