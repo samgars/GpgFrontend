@@ -170,6 +170,9 @@ void MainWindow::Init() noexcept {
       slot_start_wizard();
     }
 
+    // check if there are invalid key databases and notify user
+    check_and_notify_invalid_key_dbs();
+
     // loading process is done
     emit SignalLoaded();
 
@@ -300,4 +303,50 @@ void MainWindow::slot_popup_menu_by_key_list(QContextMenuEvent* event,
 auto MainWindow::GetCurrentGpgContextChannel() const -> int {
   return m_key_list_->GetCurrentGpgContextChannel();
 }
+
+auto MainWindow::check_and_notify_invalid_key_dbs() -> void {
+  auto key_dbs = GetAllKeyDatabaseInfoBySettings();
+
+  // 1. Filter and identify invalid databases
+  QString details;
+  int invalid_count = 0;
+
+  for (const auto& key_db : key_dbs) {
+    if (!key_db.valid) {
+      invalid_count++;
+      details +=
+          tr("Name: %1\nPath: %2\n\n").arg(key_db.name, key_db.origin_path);
+    }
+  }
+
+  // If everything is valid, just log and exit
+  if (invalid_count == 0) {
+    LOG_D() << "No invalid key databases detected.";
+    return;
+  }
+
+  // 2. Configure the Message Box
+  auto* msg_box = new QMessageBox(this);
+  msg_box->setIcon(QMessageBox::Warning);
+  msg_box->setWindowTitle(tr("Invalid Key Databases"));
+  msg_box->setAttribute(Qt::WA_DeleteOnClose);
+
+  // Main summary text (Large font)
+  msg_box->setText(
+      tr("Detected %1 invalid key database(s).").arg(invalid_count));
+  // Secondary description text
+  msg_box->setInformativeText(
+      tr("The application cannot load these databases. "
+         "Please review the details below and fix the issues in the GnuPG "
+         "Controller."));
+
+  // Technical details hidden behind the "Show Details..." button
+  msg_box->setDetailedText(details);
+  msg_box->addButton(QMessageBox::Ignore);
+
+  // 4. Execute and Handle Interaction
+  LOG_W() << "Invalid key databases detected count: " << invalid_count;
+  msg_box->show();
+}
+
 }  // namespace GpgFrontend::UI

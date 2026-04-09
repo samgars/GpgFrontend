@@ -656,6 +656,12 @@ class GF_UI_EXPORT MainWindow : public GeneralMainWindow {
   auto fuzzy_signature_key_elimination(
       const QSharedPointer<GpgOperaContextBasement>& contexts) -> bool;
 
+  /**
+   * @brief
+   *
+   */
+  auto check_and_notify_invalid_key_dbs() -> void;
+
   TextEdit* edit_{};          ///< Tabwidget holding the edit-windows
   QMenu* file_menu_{};        ///<  Submenu for file-operations
   QMenu* edit_menu_{};        ///<  Submenu for text-operations
