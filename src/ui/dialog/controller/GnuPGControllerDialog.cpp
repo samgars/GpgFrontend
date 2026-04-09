@@ -93,7 +93,7 @@ GnuPGControllerDialog::GnuPGControllerDialog(QWidget* parent)
       });
 #else
   connect(ui_->useCustomGnuPGInstallPathCheckBox, &QCheckBox::stateChanged,
-          this, [=](int state) {
+          this, [=](int state) -> void {
             ui_->useCustomGnuPGInstallPathButton->setDisabled(
                 state != Qt::CheckState::Checked);
           });
@@ -110,7 +110,8 @@ GnuPGControllerDialog::GnuPGControllerDialog(QWidget* parent)
 #endif
 
   connect(
-      ui_->useCustomGnuPGInstallPathButton, &QPushButton::clicked, this, [=]() {
+      ui_->useCustomGnuPGInstallPathButton, &QPushButton::clicked, this,
+      [=]() -> void {
         QString selected_custom_gnupg_install_path =
             QFileDialog::getExistingDirectory(
                 this, tr("Open Directory"), {},
@@ -279,7 +280,7 @@ void GnuPGControllerDialog::set_settings() {
 
   this->slot_set_restart_needed(kNonRestartCode);
 
-  key_db_infos_ = GetKeyDatabaseInfoBySettings();
+  key_db_infos_ = GetAllKeyDatabaseInfoBySettings();
   active_key_db_infos_ = GetGpgKeyDatabaseInfos();
 
   this->slot_refresh_key_database_table();
@@ -319,7 +320,8 @@ void GnuPGControllerDialog::slot_set_restart_needed(int mode) {
   this->restart_mode_ = mode;
 }
 
-auto GnuPGControllerDialog::check_custom_gnupg_path(QString path) -> bool {
+auto GnuPGControllerDialog::check_custom_gnupg_path(const QString& path)
+    -> bool {
   if (path.isEmpty()) return false;
 
   QFileInfo const dir_info(path);
@@ -423,7 +425,7 @@ void GnuPGControllerDialog::slot_refresh_key_database_table() {
 
     auto is_active =
         std::find_if(active_key_db_infos_.begin(), active_key_db_infos_.end(),
-                     [key_db](const KeyDatabaseInfo& i) {
+                     [key_db](const KeyDatabaseInfo& i) -> bool {
                        return i.name == key_db.name;
                      }) != active_key_db_infos_.end();
     ui_->keyDatabaseTable->setItem(
@@ -433,7 +435,8 @@ void GnuPGControllerDialog::slot_refresh_key_database_table() {
     ui_->keyDatabaseTable->setItem(index, 2,
                                    new QTableWidgetItem(key_db.origin_path));
 
-    ui_->keyDatabaseTable->setItem(index, 3, new QTableWidgetItem(key_db.path));
+    ui_->keyDatabaseTable->setItem(
+        index, 3, new QTableWidgetItem(is_active ? key_db.path : tr("N/A")));
 
     index++;
   }

@@ -161,7 +161,7 @@ class GnuPGControllerDialog : public GeneralDialog {
    * @return true
    * @return false
    */
-  auto check_custom_gnupg_path(QString) -> bool;
+  auto check_custom_gnupg_path(const QString& path) -> bool;
 
  protected:
   /**
