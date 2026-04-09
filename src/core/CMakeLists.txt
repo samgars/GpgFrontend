@@ -49,7 +49,7 @@ else()
 endif()
 
 # link openssl
-target_link_libraries(${LIBRARY_TARGET} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(${LIBRARY_TARGET} PUBLIC ssl crypto)
 
 if(MINGW)
   # for uuid ability in mingw

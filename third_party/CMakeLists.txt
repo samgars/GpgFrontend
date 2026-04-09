@@ -200,3 +200,11 @@ if(BUILD_AND_STATIC_LINK_GPGME AND XCODE_BUILD)
   target_link_libraries(GnuPGDeps INTERFACE intl)
   target_link_libraries(GnuPGDeps INTERFACE ${GPGME_STATIC_LIB} ${ASSUAN_STATIC_LIB} ${GPG_ERROR_STATIC_LIB})
 endif()
+
+# Introduce OpenSSL
+set(BUILD_OPENSSL ON)
+set(OPENSSL_BUILD_VERSION "3.6.1")
+if(BUILD_AND_STATIC_LINK_OPENSSL)
+  set(OPENSSL_USE_STATIC_LIBS ON)
+endif()
+add_subdirectory(openssl-cmake)

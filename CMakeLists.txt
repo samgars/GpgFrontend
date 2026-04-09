@@ -421,9 +421,7 @@ else()
   endif()
 endif()
 
-if(BUILD_AND_STATIC_LINK_GPGME)
-  add_subdirectory(third_party)
-endif()
+add_subdirectory(third_party)
 
 # modules are only for qt6
 if(BUILD_MODULES AND NOT GPGFRONTEND_QT5_BUILD)

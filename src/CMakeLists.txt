@@ -31,36 +31,6 @@ endif()
 # Introduce GpgME
 find_package(Gpgme REQUIRED)
 
-# Introduce OpenSSL
-if(APPLE)
-  # Define possible OpenSSL directories
-  set(OPENSSL_DIR_CANDIDATES
-    /usr/local/opt/openssl@3
-    /opt/homebrew/opt/openssl@3
-  )
-
-  # Find the valid OpenSSL directory
-  foreach(DIR IN LISTS OPENSSL_DIR_CANDIDATES)
-    if(IS_DIRECTORY "${DIR}" OR EXISTS "${DIR}")
-      set(OPENSSL_ROOT_DIR "${DIR}")
-      break() # Stop loop once a valid directory is found
-    endif()
-  endforeach()
-
-  # If not found, throw an error or warning
-  if(NOT OPENSSL_ROOT_DIR)
-    message(FATAL_ERROR "OpenSSL not found in the standard directories. Please install it or set OPENSSL_ROOT_DIR manually.")
-  endif()
-endif()
-
-if(BUILD_AND_STATIC_LINK_OPENSSL)
-  set(OPENSSL_USE_STATIC_LIBS TRUE)
-endif()
-
-find_package(OpenSSL REQUIRED)
-
-message(STATUS "OpenSSL Libraries: ${OPENSSL_LIBRARIES}")
-
 # add libraries
 include(${CMAKE_SOURCE_DIR}/cmake/LibraryRegistry.cmake)
 add_subdirectory(core)
@@ -244,17 +214,6 @@ if(MINGW)
   file(GLOB _libDllPath "${MSYS64_BIN_PATH}/libb2-*.dll")
   list(APPEND ALL_RUNTIME_DEP_PATH_LIST ${_libDllPath})
 
-  # openssl
-  if(NOT BUILD_AND_STATIC_LINK_OPENSSL)
-    unset(_libDllPath)
-    file(GLOB _libDllPath "${MSYS64_BIN_PATH}/libssl-*.dll")
-    list(APPEND ALL_RUNTIME_DEP_PATH_LIST ${_libDllPath})
-
-    unset(_libDllPath)
-    file(GLOB _libDllPath "${MSYS64_BIN_PATH}/libcrypto-*.dll")
-    list(APPEND ALL_RUNTIME_DEP_PATH_LIST ${_libDllPath})
-  endif()
-
   unset(_libDllPath)
   file(GLOB _libDllPath "${MSYS64_BIN_PATH}/libxml2-*.dll")
   list(APPEND ALL_RUNTIME_DEP_PATH_LIST ${_libDllPath})
@@ -325,7 +284,7 @@ endif()
 target_link_libraries(${APP_NAME} gf_core gf_ui gf_test)
 
 # link OpenSSL for secure mechanism
-target_link_libraries(${APP_NAME} OpenSSL::SSL OpenSSL::Crypto)
+target_link_libraries(${APP_NAME} ssl crypto)
 
 if(MINGW)
   message(STATUS "Link Application Library For MINGW")
