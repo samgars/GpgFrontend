@@ -25,44 +25,32 @@
         <item row="0" column="0">
          <layout class="QVBoxLayout" name="verticalLayout_3">
           <item>
-           <layout class="QHBoxLayout" name="horizontalLayout_2" stretch="0,0">
-            <property name="spacing">
-             <number>6</number>
-            </property>
-            <property name="sizeConstraint">
-             <enum>QLayout::SetDefaultConstraint</enum>
-            </property>
-            <item>
+           <layout class="QFormLayout" name="formLayout">
+            <item row="0" column="0">
              <widget class="QLabel" name="modulePolicyLabel">
-              <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-                <horstretch>0</horstretch>
-                <verstretch>0</verstretch>
-               </sizepolicy>
-              </property>
               <property name="text">
                <string>Module Loading Policy</string>
               </property>
              </widget>
             </item>
-            <item>
+            <item row="0" column="1">
              <widget class="QComboBox" name="modulePolicyComboBox">
               <property name="sizePolicy">
-               <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
                 <horstretch>0</horstretch>
                 <verstretch>0</verstretch>
                </sizepolicy>
               </property>
              </widget>
             </item>
+            <item row="1" column="0" colspan="2">
+             <widget class="QCheckBox" name="clearGpgPasswordCacheCheckBox">
+              <property name="text">
+               <string>Clear gpg password cache when closing GpgFrontend.</string>
+              </property>
+             </widget>
+            </item>
            </layout>
-          </item>
-          <item>
-           <widget class="QCheckBox" name="clearGpgPasswordCacheCheckBox">
-            <property name="text">
-             <string>Clear gpg password cache when closing GpgFrontend.</string>
-            </property>
-           </widget>
           </item>
          </layout>
         </item>
@@ -191,6 +179,9 @@
      </item>
      <item>
       <spacer name="verticalSpacer">
+       <property name="orientation">
+        <enum>Qt::Vertical</enum>
+       </property>
        <property name="sizeHint" stdset="0">
         <size>
          <width>20</width>
