@@ -202,7 +202,16 @@ if(BUILD_AND_STATIC_LINK_GPGME AND XCODE_BUILD)
 endif()
 
 # Introduce OpenSSL
-set(BUILD_OPENSSL ON)
+if(MINGW)
+  # since OpenSSL on msys2 is often the latest version and is well maintained ,
+  # and it's better to use it to avoid build issues.
+  set(SYSTEM_OPENSSL ON)
+  set(BUILD_OPENSSL OFF)
+else()
+ set(SYSTEM_OPENSSL OFF)
+  set(BUILD_OPENSSL ON)
+endif()
+
 set(OPENSSL_BUILD_VERSION "3.6.1")
 set(OPENSSL_USE_STATIC_LIBS ON)
 add_subdirectory(openssl-cmake)
