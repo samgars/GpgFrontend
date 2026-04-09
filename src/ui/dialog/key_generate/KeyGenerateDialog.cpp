@@ -249,7 +249,13 @@ KeyGenerateDialog::KeyGenerateDialog(int channel, QWidget* parent)
   load_easy_profile_config();
 
   QString info_text;
-  info_text += (tr("GnuPG Version: %1") + "\n").arg(GnuPGVersion());
+  info_text += (tr("GnuPG Version: %1") + "\n\n").arg(GnuPGVersion());
+
+  info_text +=
+      tr("If subkey is specified, it will be generated together with the "
+         "primary key. Therefore, you may need to enter the passphrase "
+         "additionally for the subkey generation.") +
+      "\n\n";
 
   info_text += "\n";
   info_text += tr("Supported Primary Key Algorithms: ") + "\n";
@@ -480,6 +486,34 @@ void KeyGenerateDialog::refresh_widgets_state() {
   ui_->easyCombinationComboBox->blockSignals(true);
   ui_->easyCombinationComboBox->setCurrentText(tr("Primary Key With Subkey"));
   ui_->easyCombinationComboBox->blockSignals(false);
+
+  // handle sub algo related widgets
+  QContainer<KeyAlgo> sub_algos = gen_subkey_info_->GetAlgo().SubAlgos();
+  if (!sub_algos.empty()) {
+    ui_->scndAlgoComboBox->setEnabled(true);
+    ui_->scndAlgoComboBox->setHidden(false);
+    ui_->scndAlgoLabel->setHidden(false);
+    ui_->scndKeyLengthLabel->setHidden(false);
+
+    ui_->scndAlgoComboBox->blockSignals(true);
+    ui_->scndAlgoComboBox->clear();
+    QSet<QString> sub_algo_names;
+    for (const auto& algo : sub_algos) {
+      sub_algo_names.insert(algo.Name());
+    }
+    for (const auto& algo_name : sub_algo_names) {
+      ui_->scndAlgoComboBox->addItem(algo_name);
+    }
+    ui_->scndAlgoComboBox->blockSignals(false);
+  } else {
+    ui_->scndAlgoComboBox->setEnabled(false);
+    ui_->scndAlgoComboBox->clear();
+    ui_->scndAlgoComboBox->setHidden(true);
+    ui_->scndAlgoLabel->setHidden(true);
+    ui_->scndKeyLengthLabel->setHidden(true);
+  }
+
+  refresh_hybrid_algo_widgets_state();
 }
 
 void KeyGenerateDialog::set_signal_slot_config() {
@@ -620,10 +654,21 @@ void KeyGenerateDialog::set_signal_slot_config() {
           });
 
   connect(ui_->sAlgoComboBox, &QComboBox::currentTextChanged, this,
-          [=](const QString&) {
+          [=](const QString&) -> void {
             sync_gen_subkey_algo_info();
             slot_set_easy_key_algo_2_custom();
             refresh_widgets_state();
+
+            if (ui_->scndAlgoComboBox->isEnabled()) {
+              auto [found, algo] =
+                  GetAlgoByName(ui_->scndAlgoComboBox->currentText(),
+                                supported_subkey_algos_);
+              if (found) {
+                gen_subkey_info_->SetSubAlgo(algo);
+              }
+            } else {
+              gen_subkey_info_->SetSubAlgo(KeyGenerateInfo::kNoneAlgo);
+            }
           });
 
   connect(ui_->easyProfileComboBox,
@@ -690,6 +735,22 @@ void KeyGenerateDialog::set_signal_slot_config() {
 
   connect(ui_->reset2DefaultPushButton, &QPushButton::clicked, this,
           &KeyGenerateDialog::slot_reset_easy_profile_config_to_default);
+
+  connect(ui_->scndAlgoComboBox, &QComboBox::currentTextChanged, this,
+          [=](const QString& text) -> void {
+            auto [found, algo] = GetAlgoByName(text, supported_subkey_algos_);
+            if (found) gen_subkey_info_->SetSubAlgo(algo);
+            refresh_hybrid_algo_widgets_state();
+          });
+
+  connect(ui_->scndKeyLengthComboBox, &QComboBox::currentTextChanged, this,
+          [this](const QString& text) -> void {
+            auto [found, algo] = GetAlgoByNameAndKeyLength(
+                ui_->scndAlgoComboBox->currentText(), text.toInt(),
+                supported_subkey_algos_);
+
+            if (found) gen_subkey_info_->SetSubAlgo(algo);
+          });
 }
 
 void KeyGenerateDialog::sync_gen_key_algo_info() {
@@ -708,6 +769,10 @@ void KeyGenerateDialog::sync_gen_subkey_algo_info() {
     if (s_found) {
       gen_subkey_info_->SetAlgo(s_found ? algo : KeyGenerateInfo::kNoneAlgo);
     }
+
+    // if algo not found, we don't set sub algo to none algo, because some sub
+    // algos
+    gen_subkey_info_->SetSubAlgo(KeyGenerateInfo::kNoneAlgo);
   }
 }
 
@@ -1055,5 +1120,25 @@ void KeyGenerateDialog::slot_reset_easy_profile_config_to_default() {
 
   easy_mode_conf_ = {};
   load_easy_profile_config();
+}
+
+void KeyGenerateDialog::refresh_hybrid_algo_widgets_state() {
+  if (ui_->scndAlgoComboBox->isHidden()) {
+    ui_->scndKeyLengthComboBox->setEnabled(false);
+    ui_->scndKeyLengthComboBox->clear();
+    ui_->scndKeyLengthComboBox->setHidden(true);
+    return;
+  }
+
+  ui_->scndKeyLengthComboBox->setEnabled(true);
+  ui_->scndKeyLengthComboBox->setHidden(false);
+  ui_->scndKeyLengthComboBox->blockSignals(true);
+  SetKeyLengthComboxBoxByAlgo(
+      ui_->scndKeyLengthComboBox,
+      SearchAlgoByName(ui_->scndAlgoComboBox->currentText(),
+                       supported_subkey_algos_));
+  ui_->scndKeyLengthComboBox->setCurrentText(
+      QString::number(gen_subkey_info_->SubAlgo().KeyLength()));
+  ui_->scndKeyLengthComboBox->blockSignals(false);
 }
 }  // namespace GpgFrontend::UI

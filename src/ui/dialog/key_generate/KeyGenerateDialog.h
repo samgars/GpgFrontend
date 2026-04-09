@@ -196,6 +196,12 @@ class KeyGenerateDialog : public GeneralDialog {
   void refresh_widgets_state();
 
   /**
+   * @brief
+   *
+   */
+  void refresh_hybrid_algo_widgets_state();
+
+  /**
    * @brief Set the signal slot object
    *
    */
