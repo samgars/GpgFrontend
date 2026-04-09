@@ -207,8 +207,11 @@ if(MINGW)
   # and it's better to use it to avoid build issues.
   set(SYSTEM_OPENSSL ON)
   set(BUILD_OPENSSL OFF)
+  # static linking on Windows for better security and portability, and it's
+  # generally recommended for OpenSSL on Windows.
+  set(OPENSSL_USE_STATIC_LIBS ON)
 else()
- set(SYSTEM_OPENSSL OFF)
+  set(SYSTEM_OPENSSL OFF)
   set(BUILD_OPENSSL ON)
 endif()
 
