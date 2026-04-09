@@ -74,6 +74,12 @@ target_link_libraries(${LIBRARY_TARGET} PRIVATE archive)
 # link qt
 target_link_libraries(${LIBRARY_TARGET} PUBLIC Qt::Core Qt::Gui)
 
+# link rust support library if enabled
+if(BUILD_RUST_SUPPORT)
+  target_link_libraries(${LIBRARY_TARGET} PRIVATE gf_rust)
+  target_compile_definitions(${LIBRARY_TARGET} PRIVATE HAS_RUST_SUPPORT)
+endif()
+
 # set up pch
 target_precompile_headers(${LIBRARY_TARGET}
   PUBLIC ${CMAKE_SOURCE_DIR}/src/GpgFrontend.h

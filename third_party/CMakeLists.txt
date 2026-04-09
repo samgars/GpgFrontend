@@ -206,3 +206,18 @@ set(BUILD_OPENSSL ON)
 set(OPENSSL_BUILD_VERSION "3.6.1")
 set(OPENSSL_USE_STATIC_LIBS ON)
 add_subdirectory(openssl-cmake)
+
+# Introduce Rust support
+if(BUILD_RUST_SUPPORT)
+  include(FetchContent)
+
+  FetchContent_Declare(
+      Corrosion
+      GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+      GIT_TAG v0.6.1 # Optionally specify a commit hash, version tag or branch here
+  )
+  FetchContent_MakeAvailable(Corrosion)
+
+  # Import targets defined in a package or workspace manifest `Cargo.toml` file
+  corrosion_import_crate(MANIFEST_PATH ${CMAKE_SOURCE_DIR}/rust/Cargo.toml)
+endif()

@@ -132,3 +132,11 @@ target_wrapper.*
 
 #VSCode
 .vscode
+
+
+
+
+
+# Rust
+rust/target/
+rust/.qt/
