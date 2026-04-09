@@ -204,7 +204,5 @@ endif()
 # Introduce OpenSSL
 set(BUILD_OPENSSL ON)
 set(OPENSSL_BUILD_VERSION "3.6.1")
-if(BUILD_AND_STATIC_LINK_OPENSSL)
-  set(OPENSSL_USE_STATIC_LIBS ON)
-endif()
+set(OPENSSL_USE_STATIC_LIBS ON)
 add_subdirectory(openssl-cmake)
