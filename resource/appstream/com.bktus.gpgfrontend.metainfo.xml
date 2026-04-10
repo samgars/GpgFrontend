@@ -12,31 +12,17 @@
 
   <description>
     <p>
-      GpgFrontend is a modern, cross-platform, open-source GUI for
-      OpenPGP encryption—simple enough for beginners, powerful enough for
-      experts, and portable enough for everyone who values security and
-      flexibility.
-    </p>
-    <p>
-      With GpgFrontend, you can rapidly encrypt, decrypt, and digitally sign
-      texts, files, and emails with one click. The tool supports true
-      cross-platform portability, allowing you to run it directly from a USB
-      drive and transfer your keys and settings seamlessly between Windows and
-      Linux. Multiple independent key databases let you manage identities for
-      different roles, projects, or teams—all with comprehensive algorithm
-      support through the latest GnuPG.
+      GpgFrontend is a modern "Enigma" built on GnuPG, bringing effortless and
+      trustworthy privacy to your digital life. It is a powerful yet simple
+      OpenPGP GUI designed for both beginners and experts.
     </p>
     <ul>
-      <li>One-click Encryption and Signing — Instantly encrypt, decrypt, and sign texts, files, and emails.</li>
-      <li>Truly Cross-platform — Native support for Windows, macOS, Linux, and buildable on FreeBSD.</li>
-      <li>Fully Portable — Run from a USB drive; seamlessly move keys and settings between systems.</li>
-      <li>Secure and Simple Key Transfer — Safely move your keys and configurations between devices.</li>
-      <li>Multiple Independent Key Databases — Easily manage keys for different purposes.</li>
-      <li>Comprehensive Algorithm Support — RSA, DSA, EdDSA, ECDSA (NIST, Brainpool), ECDH, and more via GnuPG.</li>
+      <li>Easy: Encrypt and sign your texts, files, and more with one click.</li>
+      <li>Cross-platform: Native support for Windows, macOS and Linux.</li>
+      <li>Portable: Run directly from a USB drive and carry your keys anywhere.</li>
+      <li>Flexible: Manage keys separately through multiple independent databases.</li>
+      <li>Privacy-focused: Multiple approaches to enhance safety with latest GnuPG support.</li>
     </ul>
-    <p>
-      100% free, open-source, and privacy-friendly—no telemetry, privacy by design.
-    </p>
   </description>
 
   <launchable type="desktop-id">com.bktus.gpgfrontend.desktop</launchable>
@@ -84,6 +70,7 @@
   <url type="vcs-browser">https://github.com/saturneric/GpgFrontend</url>
   
   <releases>
+    <release version="2.1.11" date="2026-04-10"/>
     <release version="2.1.10" date="2025-10-25"/>
     <release version="2.1.9" date="2025-06-18"/>
     <release version="2.1.8" date="2025-04-19"/>
