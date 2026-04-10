@@ -340,19 +340,20 @@ void MainWindow::slot_result_analyse_show_helper(
 
   // Prepare summary section
   summary.append("# " + tr("Summary Report") + "\n\n");
-  summary.append("- " + tr("Total Operations: %1\n").arg(opera_results.size()));
-  summary.append("- " + tr("Successful: %1\n").arg(success_count));
-  summary.append("- " + tr("Warnings: %1\n").arg(warn_count));
-  summary.append("- " + tr("Failures: %1\n").arg(fail_count));
+  summary.append("- " + tr("Total Operations: %1").arg(opera_results.size()) +
+                 "\n");
+  summary.append("- " + tr("Successful: %1").arg(success_count) + "\n");
+  summary.append("- " + tr("Warnings: %1").arg(warn_count) + "\n");
+  summary.append("- " + tr("Failures: %1").arg(fail_count) + "\n");
 
   if (!failed_tags.isEmpty()) {
     summary.append("- " +
-                   tr("Failed Objects: %1\n").arg(failed_tags.join(", ")));
+                   tr("Failed Objects: %1").arg(failed_tags.join(", ") + "\n"));
   }
 
   if (!warning_tags.isEmpty()) {
-    summary.append("- " +
-                   tr("Warning Objects: %1\n").arg(warning_tags.join(", ")));
+    summary.append(
+        "- " + tr("Warning Objects: %1").arg(warning_tags.join(", ") + "\n"));
   }
 
   // Display the final report in the info board

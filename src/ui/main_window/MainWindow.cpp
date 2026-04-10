@@ -314,8 +314,8 @@ auto MainWindow::check_and_notify_invalid_key_dbs() -> void {
   for (const auto& key_db : key_dbs) {
     if (!key_db.valid) {
       invalid_count++;
-      details +=
-          tr("Name: %1\nPath: %2\n\n").arg(key_db.name, key_db.origin_path);
+      details += tr("Name: %1").arg(key_db.name) + "\n" +
+                 tr("Path: %1").arg(key_db.origin_path) + "\n\n";
     }
   }
 
