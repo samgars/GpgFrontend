@@ -1,10 +1,16 @@
 import json
 import datetime
+import os
 from xml.sax.saxutils import escape
 
 GITHUB_DOWNLOAD_URL = "https://github.com/saturneric/GpgFrontend/releases/download/"
 BKTUS_DOWNLOAD_URL = "https://ftp.bktus.com/GpgFrontend/"
 VALID_EXT = (".dmg", ".zip", ".msi", ".AppImage", ".exe")
+
+# get releases from GitHub API and save to build/releases.json
+os.system(
+    "gh api https://api.github.com/repos/saturneric/gpgfrontend/releases > build/releases.json"
+)
 
 with open("build/releases.json", "r", encoding="utf-8") as f:
     releases = json.load(f)
