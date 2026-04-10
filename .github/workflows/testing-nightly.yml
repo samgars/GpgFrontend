@@ -26,8 +26,9 @@
 name: Build Nightly
 
 on:
-  schedule:
-    - cron: "0 2 * * *"
+  push:
+    branches:
+      - develop
   workflow_dispatch:
 
 env:
@@ -35,37 +36,6 @@ env:
   GNUPG_VERSION: "2.5.18"
 
 jobs:
-  check-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      should_build: ${{ steps.check.outputs.should_build }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          ref: "develop"
-          fetch-depth: 2
-
-      - name: Check for changes in last 24 hours
-        id: check
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          CURRENT_TIME=$(date -u +%s)
-
-          LAST_COMMIT=$(git log -1 --format=%ct)
-          TIME_DIFF_COMMIT=$((CURRENT_TIME - LAST_COMMIT))
-
-          SHOULD_BUILD=false
-          REASON="No changes in the last 24 hours"
-
-          if [ $TIME_DIFF_COMMIT -lt 86400 ]; then
-            SHOULD_BUILD=true
-            REASON="Changes found in the last 24 hours"
-          fi
-
-          echo "should_build=${SHOULD_BUILD}" >> $GITHUB_OUTPUT
-          echo "$REASON"
-
   build:
     needs: check-changes
     if: needs.check-changes.outputs.should_build == 'true'
@@ -146,7 +116,7 @@ jobs:
 
       - name: Install Dependence (macOS)
         run: |
-          brew install --formula cmake automake texinfo libarchive googletest create-dmg
+          brew install --formula automake texinfo libarchive googletest create-dmg
         if: runner.os == 'macOS'
 
       - name: Set up MinGW (Windows)
@@ -453,6 +423,7 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
+    environment: nightly-release-approval
     steps:
       - uses: actions/checkout@v6
         with:
