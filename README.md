@@ -22,8 +22,11 @@ trustworthy to your privacy life.
 
 **Planned Next Release:** 
 
-- v2.1.11 (before 2026-04-30) regular update with no major new features
-  but enhancements of modules APIs and security improvements.
+- v2.2.0+: expected in the next few months, with a focus on introduce rust
+  support and add a new OpenPGP backend `rpgp` to have a better support for
+  OpenPGPv6 standard. The `gnupg` backend will be kept as the default one for a
+  long time, and the new `rpgp` backend will be optional for users who want to
+  try it out. 
 
 ## Table of Contents
 
