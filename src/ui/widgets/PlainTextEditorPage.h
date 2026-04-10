@@ -95,7 +95,7 @@ class PlainTextEditorPage : public QWidget {
   /**
    * @details Get the filepath of the currently activated tab.
    */
-  [[nodiscard]] auto GetFilePath() const -> QString;
+  auto GetFilePath() const -> QString;  // NOLINT
 
   /**
    * @brief notify the user that the file has been saved.
