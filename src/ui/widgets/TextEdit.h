@@ -317,7 +317,7 @@ class TextEdit : public QWidget {
    *
    * @return QTabWidget*
    */
-  auto SlotGetTabWidget() -> QTabWidget*;
+  QTabWidget* SlotGetTabWidget();  // NOLINT
 
  protected:
   /**
