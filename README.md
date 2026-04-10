@@ -22,12 +22,11 @@ trustworthy to your privacy life.
 
 **Planned Next Release:** 
 
-- v2.2.0+: expected in the next few months, with a focus on adding a new OpenPGP
-  backend `rpgp` to have a better support for OpenPGPv6 standard. The `gnupg`
-  backend will surely be kept as the default and the most important one, so the
-  new `rpgp` backend will be optional for users who want to try it out. It must
-  be noticed that the `rpgp` backend can not cover all the features of the
-  `gnupg` backend at the beginning, but it will be improved gradually. 
+- v2.2.0+ Roadmap: Expected in the coming months, this version introduces an
+  optional rpgp backend for OpenPGPv6 (RFC 9580) support. GnuPG will remain the
+  default; however, both backends can be used simultaneously. Although rpgp will
+  initially have fewer features than GnuPG, I plan to bridge this gap through
+  gradual improvements.
 
 ## Table of Contents
 
