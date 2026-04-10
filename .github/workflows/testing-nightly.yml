@@ -37,8 +37,6 @@ env:
 
 jobs:
   build:
-    needs: check-changes
-    if: needs.check-changes.outputs.should_build == 'true'
     strategy:
       matrix:
         os:
