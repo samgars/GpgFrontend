@@ -46,12 +46,12 @@ trustworthy to your privacy life.
 
 For detailed instructions on installation, usage, and troubleshooting, please
 refer to the [User Manual](https://www.gpgfrontend.bktus.com/overview/glance).
-The User Manual is the primary and most up-to-date resource for all users. It
-provides guidance beyond what is found in the README, ensuring you have the best
-practices.
+The User Manual is the primary and most up-to-date resource for all users who
+want to use GpgFrontend. It provides guidance and some introductions on basic
+concepts, ensuring you have the best practices at the most of the time.
 
-The source code for the user manual is maintained in this
-[repository](https://github.com/saturneric/GpgFrontend-Manual.git).
+> The source code for the user manual is maintained in this
+> [repository](https://github.com/saturneric/GpgFrontend-Manual.git).
 
 ## Supported Languages
 
@@ -64,7 +64,7 @@ GpgFrontend currently supports an array of languages including:
 - Italian
 - Spanish
 
-Contributors: [SHOW](TRANSLATORS)
+And these translations are contributed by our community: [SHOW](TRANSLATORS)
 
 If you find an error in any of the translations or need to add a new one, we
 welcome you to [join our translation
@@ -73,9 +73,9 @@ work](https://www.gpgfrontend.bktus.com/appendix/translate-interface).
 ## Modules
 
 GpgFrontend supports extensive module development, allowing users to customize
-their experience. Modules can encapsulate functionality, enabling users to
-enable or disable features as needed. Users can refer to existing module code
-for guidance [Module
+their experience or get rid of unwanted features. Modules can encapsulate
+functionality, enabling users to enable or disable features as needed. Users can
+refer to existing module code for guidance [Module
 Repository](https://github.com/saturneric/GpgFrontend-Modules.git) to reach a
 broader audience.
 
@@ -91,13 +91,16 @@ to register, you are welcome to communicate with me via email.
 
 ### For Developers
 
-GpgFrontend's architecture and design are not easy for beginners, especially for
-developers who are not familiar with C++, Qt, and multithreading. I was
-struggling hard for these in the past few years as well. [An AI-assisted
+Although the GpgFrontend's UI looks simple, architecture and design behind it
+are actually not easy for beginners, especially for developers who are not
+familiar with C++, Qt, and multithreading. I was struggling hard in these areas
+since the beginning of the project as well. [An AI-assisted
 Wiki](https://deepwiki.com/saturneric/GpgFrontend) has been created through
-analysis of the GpgFrontend source code. This Wiki offers a comprehensive
-overview of the project’s technical architecture, design principles, and major
-components. I'd checked it and I would say that it can be of great help.
+analysis of the GpgFrontend source code. I've glanced through it and I would say
+that it can be of great help, but for some details, it's not entirely accurate.
+Therefore, I would recommend developers to read the source code with the help of
+the wiki, but not to rely on it completely. If you have any questions about the
+code, feel free to ask me directly or open an issue on GitHub.
 
 For setting up the development environment, please refer to the [Development
 Environment Setup Guide](https://gpgfrontend.bktus.com/appendix/setup-dev-env).
@@ -110,13 +113,13 @@ Environment Setup Guide](https://gpgfrontend.bktus.com/appendix/setup-dev-env).
 
 GpgFrontend inherits the codebase from the discontinued but easy-to-use
 **[gpg4usb](https://git.bktus.com/gpgfrontend/gpg4usb/)**. As described in my
-blog post _[“The Past and Present of GpgFrontend: My Journey with an Open-Source
-Encryption Tool”](https://blog.bktus.com/en/archives/u8hywl/)_, the project
+blog post _["The Past and Present of GpgFrontend: My Journey with an Open-Source
+Encryption Tool"](https://blog.bktus.com/en/archives/u8hywl/)_, the project
 began with a simple question:
 
-> “What if everyone could have a small, reliable, and secure ‘crypto machine’. A
+> "What if everyone could have a small, reliable, and secure 'crypto machine'. A
 > tool that makes encryption as tangible and trustworthy as turning a key in a
-> lock?”
+> lock?"
 
 ## Project Maintainer
 
