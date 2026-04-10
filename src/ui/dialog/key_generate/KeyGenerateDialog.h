@@ -51,6 +51,7 @@ class KeyGenerateDialog : public GeneralDialog {
     bool has_s_key;
     QString s_key_algo;
     QString s_key_validity;
+    QString s_key_sub_algo;
 
     bool hidden;
   };

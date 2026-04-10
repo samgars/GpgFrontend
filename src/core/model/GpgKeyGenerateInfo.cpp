@@ -194,11 +194,13 @@ auto KeyGenerateInfo::SearchPrimaryKeyAlgo(const QString &algo_id)
 
 auto KeyGenerateInfo::SearchSubKeyAlgo(const QString &algo_id)
     -> std::tuple<bool, KeyAlgo> {
-  auto it =
-      std::find_if(kSubKeyAlgos.cbegin(), kSubKeyAlgos.cend(),
-                   [=](const KeyAlgo &algo) { return algo.Id() == algo_id; });
+  const auto all_sub_algos = GetSupportedSubkeyAlgo(0);
 
-  if (it != kSubKeyAlgos.cend()) {
+  auto it = std::find_if(
+      all_sub_algos.cbegin(), all_sub_algos.cend(),
+      [=](const KeyAlgo &algo) -> bool { return algo.Id() == algo_id; });
+
+  if (it != all_sub_algos.cend()) {
     return {true, *it};
   }
 

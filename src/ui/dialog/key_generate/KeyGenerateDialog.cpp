@@ -47,13 +47,19 @@ const int kProfileNameMaxLen = 32;
 
 auto MakeDefaultEasyModeConf() -> QJsonArray {
   auto make_entry = [](const QString& name, QString p_algo, QString s_algo = "",
+                       const QString& ss_algo = "",
                        bool hidden = false) -> QJsonObject {
     QJsonObject obj;
     obj["name"] = name;
     obj["primary"] = QJsonObject{{"algo", p_algo}, {"validity", "2y"}};
     if (!s_algo.isEmpty()) {
-      obj["subkey"] = QJsonObject{{"algo", s_algo}, {"validity", "2y"}};
+      auto subkey_obj = QJsonObject{{"algo", s_algo}, {"validity", "2y"}};
+      if (!ss_algo.isEmpty()) {
+        subkey_obj["sub_algo"] = ss_algo;
+      }
+      obj["subkey"] = subkey_obj;
     }
+
     obj["hidden"] = hidden;
     return obj;
   };
@@ -66,6 +72,8 @@ auto MakeDefaultEasyModeConf() -> QJsonArray {
                  "BRAINPOOLP256R1"),
       make_entry("RSA-4096 (Higher Security)", "RSA4096"),
       make_entry("Ed448 (High Security)", "ED448", "X448"),
+      make_entry("Ed448 + Kyber-1024 (PQC Hybrid)", "ED448", "KYBER1024",
+                 "X448"),
       make_entry("RSA-2048 (Legacy)", "RSA2048", ""),
       make_entry("DSA-2048 + ELG-2048 (Deprecated)", "DSA2048", "ELG2048"),
   };
@@ -118,6 +126,20 @@ auto EasyModeConfFromJson(const QJsonObject& obj)
     }
 
     conf.s_key_validity = subkey.value("validity").toString();
+
+    if (subkey.contains("sub_algo") &&
+        !subkey.value("sub_algo").toString().trimmed().isEmpty()) {
+      auto raw_ss_algo = subkey.value("sub_algo").toString().trimmed();
+      auto [ss_found, ss_algo] =
+          GpgFrontend::KeyGenerateInfo::SearchSubKeyAlgo(raw_ss_algo.toLower());
+      if (ss_found) {
+        conf.s_key_sub_algo = ss_algo.Id();
+      } else {
+        LOG_W() << "invalid subkey's sub algo from json: " << raw_ss_algo
+                << "ignoreing config...";
+        return std::nullopt;
+      }
+    }
   } else {
     // if we don't set it explicitly, it may be defaulted to true or false by
     // compiler, which may cause unexpected behavior. So we set it explicitly to
@@ -143,6 +165,9 @@ auto EasyModeConfToJson(
     QJsonObject subkey;
     subkey["algo"] = conf.s_key_algo;
     subkey["validity"] = conf.s_key_validity;
+    if (!conf.s_key_sub_algo.isEmpty()) {
+      subkey["sub_algo"] = conf.s_key_sub_algo;
+    }
     obj["subkey"] = subkey;
   }
 
@@ -505,6 +530,13 @@ void KeyGenerateDialog::refresh_widgets_state() {
       ui_->scndAlgoComboBox->addItem(algo_name);
     }
     ui_->scndAlgoComboBox->blockSignals(false);
+
+    if (!gen_subkey_info_->SubAlgo().Id().isEmpty()) {
+      ui_->scndAlgoComboBox->blockSignals(true);
+      ui_->scndAlgoComboBox->setCurrentText(gen_subkey_info_->SubAlgo().Name());
+      ui_->scndAlgoComboBox->blockSignals(false);
+    }
+
   } else {
     ui_->scndAlgoComboBox->setEnabled(false);
     ui_->scndAlgoComboBox->clear();
@@ -647,7 +679,7 @@ void KeyGenerateDialog::set_signal_slot_config() {
 #endif
 
   connect(ui_->pAlgoComboBox, &QComboBox::currentTextChanged, this,
-          [=](const QString&) {
+          [=](const QString&) -> void {
             sync_gen_key_algo_info();
             slot_set_easy_key_algo_2_custom();
             refresh_widgets_state();
@@ -739,7 +771,10 @@ void KeyGenerateDialog::set_signal_slot_config() {
   connect(ui_->scndAlgoComboBox, &QComboBox::currentTextChanged, this,
           [=](const QString& text) -> void {
             auto [found, algo] = GetAlgoByName(text, supported_subkey_algos_);
-            if (found) gen_subkey_info_->SetSubAlgo(algo);
+            if (found) {
+              gen_subkey_info_->SetSubAlgo(algo);
+              slot_set_easy_key_algo_2_custom();
+            }
             refresh_hybrid_algo_widgets_state();
           });
 
@@ -749,7 +784,10 @@ void KeyGenerateDialog::set_signal_slot_config() {
                 ui_->scndAlgoComboBox->currentText(), text.toInt(),
                 supported_subkey_algos_);
 
-            if (found) gen_subkey_info_->SetSubAlgo(algo);
+            if (found) {
+              gen_subkey_info_->SetSubAlgo(algo);
+              slot_set_easy_key_algo_2_custom();
+            }
           });
 }
 
@@ -829,6 +867,19 @@ void KeyGenerateDialog::slot_easy_profile_changed(int index) {
 
     auto dt = ParseValidityString(c.s_key_validity);
     gen_subkey_info_->SetExpireTime(dt);
+
+    if (c.s_key_sub_algo.isEmpty()) {
+      gen_subkey_info_->SetSubAlgo(KeyGenerateInfo::kNoneAlgo);
+    } else {
+      auto [sub_found, sub_algo] =
+          KeyGenerateInfo::SearchSubKeyAlgo(c.s_key_sub_algo.toLower());
+      if (sub_found) {
+        gen_subkey_info_->SetSubAlgo(sub_algo);
+      } else {
+        gen_subkey_info_->SetSubAlgo(KeyGenerateInfo::kNoneAlgo);
+      }
+    }
+
   } else {
     gen_subkey_info_ = nullptr;
   }
@@ -837,9 +888,9 @@ void KeyGenerateDialog::slot_easy_profile_changed(int index) {
 }
 
 void KeyGenerateDialog::slot_easy_valid_date_changed(const QString& mode) {
-  auto it =
-      std::find_if(k_expire_options_list_.begin(), k_expire_options_list_.end(),
-                   [&](const ExpireOption& o) { return o.display == mode; });
+  auto it = std::find_if(
+      k_expire_options_list_.begin(), k_expire_options_list_.end(),
+      [&](const ExpireOption& o) -> bool { return o.display == mode; });
 
   auto expire_option =
       it != k_expire_options_list_.end() ? *it : k_default_expire_option_;
@@ -1004,6 +1055,14 @@ void KeyGenerateDialog::slot_save_as_easy_profile_config() {
                         QDateTime::currentDateTime().toSecsSinceEpoch()) +
         "t";
   }
+
+  if (gen_subkey_info_->SubAlgo().Id() != KeyGenerateInfo::kNoneAlgo.Id()) {
+    conf.s_key_sub_algo = gen_subkey_info_->SubAlgo().Id();
+  } else {
+    conf.s_key_sub_algo = "";
+  }
+
+  LOG_D() << "try to save easy mode config, ss_algo: " << conf.s_key_sub_algo;
 
   bool ok;
   auto profile_name = QInputDialog::getText(this, tr("Save Profile"),
