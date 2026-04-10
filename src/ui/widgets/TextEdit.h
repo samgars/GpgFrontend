@@ -154,7 +154,7 @@ class TextEdit : public QWidget {
    *
    * @return Return the return value of the savefile method
    */
-  bool SlotSaveAs();
+  bool SlotSaveAs();  // NOLINT
 
   /**
    * @details Show an OpenFileDoalog and open the file in a new tab.
@@ -173,7 +173,7 @@ class TextEdit : public QWidget {
    *
    * @return QWidget*
    */
-  auto SlotNewTab() -> QWidget*;
+  QWidget* SlotNewTab();  // NOLINT
 
   /**
    * @brief
@@ -183,8 +183,9 @@ class TextEdit : public QWidget {
    * @param icon
    * @return QWidget*
    */
-  auto SlotNewCustomTab(const QString& type, const QString& title,
-                        const QIcon& icon) -> QWidget*;
+  // NOLINTNEXTLINE
+  QWidget* SlotNewCustomTab(const QString& type, const QString& title,
+                            const QIcon& icon);
 
   /**
    * @details
