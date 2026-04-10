@@ -95,7 +95,7 @@ class PlainTextEditorPage : public QWidget {
   /**
    * @details Get the filepath of the currently activated tab.
    */
-  auto GetFilePath() const -> QString;  // NOLINT
+  QString GetFilePath();  // NOLINT
 
   /**
    * @brief notify the user that the file has been saved.
@@ -106,7 +106,7 @@ class PlainTextEditorPage : public QWidget {
   /**
    * @details Return pointer tp the textedit of the currently activated tab.
    */
-  auto GetTextPage() -> QPlainTextEdit*;
+  QPlainTextEdit* GetTextPage();  // NOLINT
 
   /**
    * @details Set filepath of currently activated tab.
@@ -126,6 +126,11 @@ class PlainTextEditorPage : public QWidget {
  protected:
   QSharedPointer<Ui_PlainTextEditor> ui_;  ///<
 
+  /**
+   * @brief
+   *
+   * @param event
+   */
   void closeEvent(QCloseEvent* event) override;
 
  private:

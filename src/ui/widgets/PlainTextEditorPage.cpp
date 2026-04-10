@@ -82,9 +82,7 @@ void PlainTextEditorPage::closeEvent(QCloseEvent *event) {
   QWidget::closeEvent(event);
 }
 
-auto PlainTextEditorPage::GetFilePath() const -> QString {
-  return full_file_path_;
-}
+auto PlainTextEditorPage::GetFilePath() -> QString { return full_file_path_; }
 
 auto PlainTextEditorPage::GetTextPage() -> QPlainTextEdit * {
   return ui_->textPage;
