@@ -388,10 +388,13 @@ jobs:
           touch build/artifacts/bin/ENV.ini
           echo "PortableMode=true" >> build/artifacts/bin/ENV.ini
           cd build
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/libgf_core.dll
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/libgf_ui.dll
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/libgf_test.dll
-          windeployqt-qt6 --no-translations --force ./artifacts/bin/GpgFrontend.exe
+          windeployqt6 --no-translations --force ./artifacts/bin/libgf_core.dll
+          windeployqt6 --no-translations --force ./artifacts/bin/libgf_ui.dll
+          windeployqt6 --no-translations --force ./artifacts/bin/libgf_test.dll
+          windeployqt6 --no-translations --force ./artifacts/bin/GpgFrontend.exe
+          for module in ./artifacts/modules/*.dll; do
+            windeployqt6 --no-translations --force "$module"
+          done
           mkdir upload-artifact
           cd artifacts
           zip -r ../upload-artifact/GpgFrontend-${{env.SHORT_SHA}}-${{matrix.os}}-x86_64.zip *
