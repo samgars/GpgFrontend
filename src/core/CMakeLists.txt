@@ -74,11 +74,9 @@ target_link_libraries(${LIBRARY_TARGET} PRIVATE archive)
 # link qt
 target_link_libraries(${LIBRARY_TARGET} PUBLIC Qt::Core Qt::Gui Qt::Sql)
 
-# link rust support library if enabled
-if(BUILD_RUST_SUPPORT)
-  target_link_libraries(${LIBRARY_TARGET} PRIVATE gf_rust)
-  target_compile_definitions(${LIBRARY_TARGET} PRIVATE HAS_RUST_SUPPORT)
-endif()
+# link rust support library
+target_link_libraries(${LIBRARY_TARGET} PRIVATE gf_rust)
+target_compile_definitions(${LIBRARY_TARGET} PRIVATE HAS_RUST_SUPPORT)
 
 # set up pch
 target_precompile_headers(${LIBRARY_TARGET}

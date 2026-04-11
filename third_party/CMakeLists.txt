@@ -89,11 +89,11 @@ if(BUILD_AND_STATIC_LINK_GPGME AND NOT MINGW AND NOT XCODE_BUILD)
     set(EXTRA_W32_GLIB "")
   endif()
 
-ExternalProject_Add(
-  EP_GpgME
+  ExternalProject_Add(
+    EP_GpgME
 
-  SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gpgme"
-  BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/gpgme"
+    SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/gpgme"
+    BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/gpgme"
 
     CONFIGURE_COMMAND
     bash -c
@@ -117,12 +117,12 @@ ExternalProject_Add(
         --disable-g13-test \
         ${EXTRA_W32_GLIB}"
 
-  BUILD_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make
-  INSTALL_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make install
+    BUILD_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make
+    INSTALL_COMMAND ${CMAKE_COMMAND} -E chdir <BINARY_DIR> make install
 
-  DEPENDS EP_GpgError EP_Assuan
-  BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libgpgme.a"
-)
+    DEPENDS EP_GpgError EP_Assuan
+    BUILD_BYPRODUCTS "${DEPS_INSTALL_ROOT}/lib/libgpgme.a"
+  )
 
   # GpgError
   add_library(GpgError STATIC IMPORTED)
@@ -211,6 +211,7 @@ else()
 endif()
 
 set(OPENSSL_BUILD_VERSION "3.6.1")
+
 # We will always use static libraries for openssl for the support of application
 # self-checking. This may avoid the potential issues of corrupted shared library
 # loading.
@@ -218,16 +219,14 @@ set(OPENSSL_USE_STATIC_LIBS ON)
 add_subdirectory(openssl-cmake)
 
 # Introduce Rust support
-if(BUILD_RUST_SUPPORT)
-  include(FetchContent)
+include(FetchContent)
 
-  FetchContent_Declare(
-      Corrosion
-      GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
-      GIT_TAG v0.6.1 # Optionally specify a commit hash, version tag or branch here
-  )
-  FetchContent_MakeAvailable(Corrosion)
+FetchContent_Declare(
+  Corrosion
+  GIT_REPOSITORY https://github.com/corrosion-rs/corrosion.git
+  GIT_TAG v0.6.1 # Optionally specify a commit hash, version tag or branch here
+)
+FetchContent_MakeAvailable(Corrosion)
 
-  # Import targets defined in a package or workspace manifest `Cargo.toml` file
-  corrosion_import_crate(MANIFEST_PATH ${CMAKE_SOURCE_DIR}/rust/Cargo.toml)
-endif()
+# Import targets defined in a package or workspace manifest `Cargo.toml` file
+corrosion_import_crate(MANIFEST_PATH ${CMAKE_SOURCE_DIR}/rust/Cargo.toml)
