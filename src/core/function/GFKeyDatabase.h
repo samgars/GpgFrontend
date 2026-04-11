@@ -67,10 +67,10 @@ class GF_CORE_EXPORT GFKeyDatabase {
   /**
    * @brief Get the Key Blocks object
    *
-   * @param fpr
+   * @param identifier
    * @return std::optional<GFKeyBlocks>
    */
-  auto GetKeyBlocks(const QString& fpr) -> std::optional<GFKeyBlocks>;
+  auto GetKeyBlocks(const QString& identifier) -> std::optional<GFKeyBlocks>;
 
   /**
    * @brief
@@ -86,10 +86,11 @@ class GF_CORE_EXPORT GFKeyDatabase {
   /**
    * @brief Get the Key object
    *
-   * @param key_id
+   * @param identifier
    * @return QString
    */
-  auto GetKeyMetadata(const QString& fpr) -> std::optional<GFKeyMetadata>;
+  auto GetKeyMetadata(const QString& identifier)
+      -> std::optional<GFKeyMetadata>;
 
   /**
    * @brief Delete a key and its associated subkeys and blocks from the database
@@ -99,6 +100,14 @@ class GF_CORE_EXPORT GFKeyDatabase {
    * @return false
    */
   auto DeleteKey(const QString& fpr) -> bool;
+
+  /**
+   * @brief
+   *
+   * @param identifier
+   * @return QString
+   */
+  auto ResolvePrimaryFpr(const QString& identifier) -> QString;
 
  private:
   QSqlDatabase db_;  ///<

@@ -99,12 +99,18 @@ auto GFKeyDatabase::GetMetadataList() -> QList<GFKeyMetadata> {
   return list;
 }
 
-auto GFKeyDatabase::GetKeyBlocks(const QString& fpr)
+auto GFKeyDatabase::GetKeyBlocks(const QString& identifier)
     -> std::optional<GFKeyBlocks> {
+  QString real_primary_fpr = ResolvePrimaryFpr(identifier);
+
+  if (real_primary_fpr.isEmpty()) {
+    return std::nullopt;
+  }
+
   QSqlQuery query(db_);
   query.prepare(
       "SELECT public_key, secret_key FROM key_blocks WHERE fpr = :fpr");
-  query.bindValue(":fpr", fpr);
+  query.bindValue(":fpr", real_primary_fpr);
 
   if (query.exec() && query.next()) {
     GFKeyBlocks blocks;
@@ -222,16 +228,26 @@ auto GFKeyDatabase::SaveKey(const GFKeyMetadata& meta,
   return db_.commit();
 }
 
-auto GFKeyDatabase::GetKeyMetadata(const QString& fpr)
+auto GFKeyDatabase::GetKeyMetadata(const QString& identifier)
     -> std::optional<GFKeyMetadata> {
+  // 1. Use the magic resolver to find the true primary fingerprint
+  QString real_primary_fpr = ResolvePrimaryFpr(identifier);
+
+  if (real_primary_fpr.isEmpty()) {
+    // Key doesn't exist in our database at all
+    return std::nullopt;
+  }
+
+  // 2. Now securely query the primary key table using the guaranteed primary
+  // FPR
   QSqlQuery query(db_);
   query.prepare(R"(
     SELECT fpr, key_id, user_id, algo, created_at, has_secret, 
            can_sign, can_encrypt, can_auth, can_certify 
-    FROM key_metadata 
-    WHERE fpr = :identifier OR key_id = :identifier
+    FROM key_metadata WHERE fpr = :fpr
   )");
-  query.bindValue(":identifier", fpr);
+  // Bind the resolved fingerprint, not the original identifier!
+  query.bindValue(":fpr", real_primary_fpr);
 
   if (query.exec() && query.next()) {
     GFKeyMetadata meta;
@@ -370,6 +386,38 @@ auto GFKeyDatabase::DeleteKey(const QString& fpr) -> bool {
   query.bindValue(":fpr", fpr);
 
   return query.exec();
+}
+
+auto GFKeyDatabase::ResolvePrimaryFpr(const QString& identifier) -> QString {
+  // 1. Clean up the identifier (remove spaces and force uppercase)
+  QString clean_id = identifier.simplified();
+  clean_id.remove(' ');
+  clean_id = clean_id.toUpper();
+
+  if (clean_id.isEmpty()) {
+    return {};
+  }
+
+  QSqlQuery query(db_);
+
+  // 2. First, check if it's already a Primary Key (FPR or Key ID)
+  query.prepare("SELECT fpr FROM key_metadata WHERE fpr = :id OR key_id = :id");
+  query.bindValue(":id", clean_id);
+  if (query.exec() && query.next()) {
+    return query.value(0).toString();  // Return itself
+  }
+
+  // 3. If not found, check if it's a Subkey. If yes, return its parent's FPR.
+  query.prepare(
+      "SELECT parent_fpr FROM subkey_metadata WHERE fpr = :id OR key_id = "
+      ":id");
+  query.bindValue(":id", clean_id);
+  if (query.exec() && query.next()) {
+    return query.value(0).toString();  // Return the parent primary fingerprint
+  }
+
+  // 4. Not found anywhere
+  return {};
 }
 
 GFKeyDatabase::~GFKeyDatabase() {
