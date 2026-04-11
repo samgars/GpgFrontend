@@ -42,6 +42,8 @@ class GF_CORE_EXPORT GpgGenerateKeyResult {
 
   explicit GpgGenerateKeyResult(gpgme_genkey_result_t);
 
+  explicit GpgGenerateKeyResult(const QString &fingerprint);
+
   GpgGenerateKeyResult();
 
   GpgGenerateKeyResult(const GpgGenerateKeyResult &);

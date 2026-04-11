@@ -35,24 +35,48 @@ GpgUID::GpgUID() = default;
 GpgUID::GpgUID(QSharedPointer<struct _gpgme_key> key_ref, gpgme_user_id_t uid)
     : key_ref_(std::move(key_ref)), uid_ref_(uid) {}
 
+GpgUID::GpgUID(QSharedPointer<GFKeyMetadata> km_ref, const GFUserId &um_ref)
+    : km_ref_(std::move(km_ref)),
+      um_ref_(QSharedPointer<GFUserId>::create(um_ref)) {}
+
 GpgUID::GpgUID(const GpgUID &) = default;
 
 auto GpgUID::operator=(const GpgUID &) -> GpgUID & = default;
 
-auto GpgUID::GetName() const -> QString { return uid_ref_->name; }
+auto GpgUID::GetName() const -> QString {
+  if (um_ref_ != nullptr) return um_ref_->name;
+  return uid_ref_->name;
+}
 
-auto GpgUID::GetEmail() const -> QString { return uid_ref_->email; }
+auto GpgUID::GetEmail() const -> QString {
+  if (um_ref_ != nullptr) return um_ref_->email;
+  return uid_ref_->email;
+}
 
-auto GpgUID::GetComment() const -> QString { return uid_ref_->comment; }
+auto GpgUID::GetComment() const -> QString {
+  if (um_ref_ != nullptr) return um_ref_->comment;
+  return uid_ref_->comment;
+}
 
-auto GpgUID::GetUID() const -> QString { return uid_ref_->uid; }
+auto GpgUID::GetUID() const -> QString {
+  if (um_ref_ != nullptr) return um_ref_->ToString();
+  return uid_ref_->uid;
+}
 
-auto GpgUID::GetRevoked() const -> bool { return uid_ref_->revoked; }
+auto GpgUID::GetRevoked() const -> bool {
+  if (um_ref_ != nullptr) return false;
+  return uid_ref_->revoked;
+}
 
-auto GpgUID::GetInvalid() const -> bool { return uid_ref_->invalid; }
+auto GpgUID::GetInvalid() const -> bool {
+  if (um_ref_ != nullptr) return false;
+  return uid_ref_->invalid;
+}
 
 auto GpgUID::GetTofuInfos() const -> std::unique_ptr<QContainer<GpgTOFUInfo>> {
   auto infos = std::make_unique<QContainer<GpgTOFUInfo>>();
+  if (um_ref_ != nullptr) return infos;
+
   auto *info_next = uid_ref_->tofu;
   while (info_next != nullptr) {
     infos->push_back(GpgTOFUInfo(info_next));
@@ -64,6 +88,8 @@ auto GpgUID::GetTofuInfos() const -> std::unique_ptr<QContainer<GpgTOFUInfo>> {
 auto GpgUID::GetSignatures() const
     -> std::unique_ptr<QContainer<GpgKeySignature>> {
   auto sigs = std::make_unique<QContainer<GpgKeySignature>>();
+  if (um_ref_ != nullptr) return sigs;
+
   auto *sig_next = uid_ref_->signatures;
   while (sig_next != nullptr) {
     sigs->push_back(GpgKeySignature(sig_next));

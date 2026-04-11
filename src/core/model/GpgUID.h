@@ -30,7 +30,7 @@
 
 #include "GpgTOFUInfo.h"
 #include "core/model/GpgKeySignature.h"
-#include "core/typedef/CoreTypedef.h"
+#include "core/typedef/GFTypedef.h"
 
 namespace GpgFrontend {
 /**
@@ -114,6 +114,13 @@ class GF_CORE_EXPORT GpgUID {
                   gpgme_user_id_t uid);
 
   /**
+   * @brief Construct a new Gpg U I D object
+   *
+   * @param km_ref
+   */
+  explicit GpgUID(QSharedPointer<GFKeyMetadata> km_ref, const GFUserId &um_ref);
+
+  /**
    * @brief
    *
    */
@@ -129,6 +136,9 @@ class GF_CORE_EXPORT GpgUID {
  private:
   QSharedPointer<struct _gpgme_key> key_ref_;
   gpgme_user_id_t uid_ref_ = nullptr;  ///<
+
+  QSharedPointer<GFKeyMetadata> km_ref_;
+  QSharedPointer<GFUserId> um_ref_;
 };
 
 }  // namespace GpgFrontend

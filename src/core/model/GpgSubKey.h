@@ -31,6 +31,7 @@
 #include <gpgme.h>
 
 #include "core/model/GpgAbstractKey.h"
+#include "core/typedef/GFTypedef.h"
 
 namespace GpgFrontend {
 
@@ -59,8 +60,16 @@ class GF_CORE_EXPORT GpgSubKey : public GpgAbstractKey {
   /**
    * @brief Construct a new Gpg Sub Key object
    *
+   * @param subkey
    */
-  GpgSubKey(const GpgSubKey&);
+  explicit GpgSubKey(QSharedPointer<GFKeyMetadata> km_ref,
+                     const GFSubKeyMetadata &s_key_meta);
+
+  /**
+   * @brief Construct a new Gpg Sub Key object
+   *
+   */
+  GpgSubKey(const GpgSubKey &);
 
   /**
    * @brief Destroy the Gpg Sub Key object
@@ -73,7 +82,7 @@ class GF_CORE_EXPORT GpgSubKey : public GpgAbstractKey {
    *
    * @return GpgSubKey&
    */
-  auto operator=(const GpgSubKey&) -> GpgSubKey&;
+  auto operator=(const GpgSubKey &) -> GpgSubKey &;
 
   /**
    * @brief
@@ -266,6 +275,9 @@ class GF_CORE_EXPORT GpgSubKey : public GpgAbstractKey {
  private:
   QSharedPointer<struct _gpgme_key> key_ref_;
   gpgme_subkey_t s_key_ref_ = nullptr;  ///<
+
+  QSharedPointer<GFKeyMetadata> km_ref_;
+  QSharedPointer<GFSubKeyMetadata> skm_ref_;
 };
 
 }  // namespace GpgFrontend

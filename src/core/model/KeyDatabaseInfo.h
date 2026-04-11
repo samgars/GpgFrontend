@@ -36,6 +36,7 @@ struct KeyDatabaseInfo {
   QString path;
   QString origin_path;
   bool valid{false};
+  QString backend_type;
 
   KeyDatabaseInfo() = default;
 };

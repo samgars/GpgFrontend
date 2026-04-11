@@ -56,4 +56,9 @@ auto GpgGenerateKeyResult::operator=(const GpgGenerateKeyResult &)
 
 GpgGenerateKeyResult::~GpgGenerateKeyResult() = default;
 
+GpgGenerateKeyResult::GpgGenerateKeyResult(const QString &fingerprint) {
+  result_ref_ = QSharedPointer<struct _gpgme_op_genkey_result>::create();
+  result_ref_->fpr = fingerprint.toUtf8().data();
+}
+
 }  // namespace GpgFrontend

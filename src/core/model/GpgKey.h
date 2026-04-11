@@ -31,6 +31,8 @@
 #include "core/model/GpgAbstractKey.h"
 #include "core/model/GpgSubKey.h"
 #include "core/model/GpgUID.h"
+#include "core/typedef/GFTypedef.h"
+
 namespace GpgFrontend {
 
 /**
@@ -59,6 +61,13 @@ class GF_CORE_EXPORT GpgKey : public GpgAbstractKey {
    * @param key
    */
   explicit GpgKey(QSharedPointer<struct _gpgme_key> key_ref);
+
+  /**
+   * @brief Construct a new Gpg Key object
+   *
+   * @param km_ref
+   */
+  explicit GpgKey(const GFKeyMetadata& km_ref);
 
   /**
    * @brief Construct a new Gpg Key object
@@ -339,6 +348,7 @@ class GF_CORE_EXPORT GpgKey : public GpgAbstractKey {
 
  private:
   QSharedPointer<struct _gpgme_key> key_ref_ = nullptr;  ///<
+  QSharedPointer<GFKeyMetadata> km_ref_ = nullptr;       ///<
 };
 
 }  // namespace GpgFrontend
