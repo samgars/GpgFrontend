@@ -30,6 +30,7 @@
 
 #include <gpg-error.h>
 
+#include "core/function/GFKeyDatabase.h"
 #include "core/model/GpgData.h"
 #include "core/model/GpgDecryptResult.h"
 #include "core/model/GpgEncryptResult.h"
@@ -84,12 +85,78 @@ auto EncryptImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
   return err;
 }
 
+auto EncryptRpgpImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
+                     const GFBuffer& in_buffer, bool ascii,
+                     const DataObjectPtr& data_object) -> GpgError {
+  auto key_db = ctx_.KeyDatabase();
+  if (!key_db) {
+    LOG_E() << "Failed to get key database from context";
+    return GPG_ERR_GENERAL;
+  }
+
+  // 1. Vector to hold the actual memory of the UTF-8 strings
+  std::vector<QByteArray> key_blocks_utf8;
+
+  // 2. Vector to hold the pointers to pass to Rust FFI
+  std::vector<const char*> recipient_cstrs;
+
+  for (const auto& key : keys) {
+    auto key_block = key_db->GetKeyBlocks(key->Fingerprint());
+    if (!key_block || key_block->public_key.isEmpty()) {
+      LOG_W() << "No valid public key block found for key with fpr: "
+              << key->Fingerprint();
+      continue;
+    }
+
+    // Keep the QByteArray alive by pushing it to the vector
+    key_blocks_utf8.push_back(key_block->public_key.toUtf8());
+  }
+
+  if (key_blocks_utf8.empty()) {
+    LOG_E() << "No valid recipients found for encryption.";
+    return GPG_ERR_GENERAL;  // Or appropriate error code
+  }
+
+  // Pre-allocate space for performance
+  recipient_cstrs.reserve(key_blocks_utf8.size());
+
+  // Safely extract pointers from the valid memory blocks
+  for (const auto& ba : key_blocks_utf8) {
+    recipient_cstrs.push_back(ba.constData());
+  }
+
+  char* out_encrypted = nullptr;
+
+  // Call Rust FFI. Ensure in_buffer is a null-terminated C-string if Rust
+  // expects it.
+  auto status =
+      Rust::gfr_crypto_encrypt_text(in_buffer.Data(), recipient_cstrs.data(),
+                                    recipient_cstrs.size(), &out_encrypted);
+
+  if (status != Rust::GfrStatus::Success || (out_encrypted == nullptr)) {
+    LOG_E() << "Rust FFI encryption failed.";
+    return GPG_ERR_GENERAL;
+  }
+
+  data_object->Swap({
+      GpgEncryptResult(),
+      GFBuffer(out_encrypted, std::strlen(out_encrypted)),
+  });
+
+  // Free the memory allocated by Rust if necessary
+  Rust::gfr_crypto_free_string(out_encrypted);
+  return GPG_ERR_NO_ERROR;
+}
+
 void GpgBasicOperator::Encrypt(const GpgAbstractKeyPtrList& keys,
                                const GFBuffer& in_buffer, bool ascii,
                                const GpgOperationCallback& cb) {
   RunGpgOperaAsync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return EncryptRpgpImpl(ctx_, keys, in_buffer, ascii, data_object);
+        }
         return EncryptImpl(ctx_, keys, in_buffer, ascii, data_object);
       },
       cb, "gpgme_op_encrypt", "2.2.0");
@@ -100,7 +167,10 @@ auto GpgBasicOperator::EncryptSync(const GpgAbstractKeyPtrList& keys,
     -> std::tuple<GpgError, DataObjectPtr> {
   return RunGpgOperaSync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return EncryptRpgpImpl(ctx_, keys, in_buffer, ascii, data_object);
+        }
         return EncryptImpl(ctx_, keys, in_buffer, ascii, data_object);
       },
       "gpgme_op_encrypt", "2.2.0");
