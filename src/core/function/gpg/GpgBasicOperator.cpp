@@ -217,16 +217,108 @@ auto DecryptImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
 
 auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
                      const DataObjectPtr& data_object) -> GpgError {
-  GpgData data_in(in_buffer);
-  GpgData data_out;
+  char* out_recipients = nullptr;
+  auto err = Rust::gfr_crypto_get_recipients(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      &out_recipients);
 
-  auto err =
-      CheckGpgError(gpgme_op_decrypt(ctx_.DefaultContext(), data_in, data_out));
+  if (err != Rust::GfrStatus::Success || out_recipients == nullptr) {
+    LOG_E() << "Rust FFI get_recipients failed.";
+    return GPG_ERR_GENERAL;
+  }
+
+  auto recipients_str = QString::fromUtf8(out_recipients);
+  Rust::gfr_crypto_free_string(out_recipients);
+
+  QStringList recipient_ids = recipients_str.split(",", Qt::SkipEmptyParts);
+
+  LOG_D() << "Recipients extracted from RPGP message: " << recipient_ids;
+
+  auto key_db = ctx_.KeyDatabase();
+  if (!key_db) {
+    LOG_E() << "Failed to get key database from context";
+    return GPG_ERR_GENERAL;
+  }
+
+  // Variables to store our target key for decryption
+  QString target_secret_key_block;
+  QString target_primary_fpr;
+  bool found_usable_secret = false;
+
+  // 2. Iterate through all sniffed recipient IDs to find a USABLE secret key
+  for (const auto& key_id : recipient_ids) {
+    // Fetch the full metadata tree (Primary + Subkeys)
+    auto meta_opt = key_db->GetKeyMetadata(key_id);
+    if (!meta_opt) continue;
+
+    // Check if the recipient ID matches the primary key itself
+    // (Rare for encryption, but possible with older RSA keys)
+    if (meta_opt->key_id.toUpper() == key_id.toUpper() ||
+        meta_opt->fpr.toUpper() == key_id.toUpper()) {
+      if (meta_opt->has_secret) {
+        found_usable_secret = true;
+      }
+    } else {
+      // Check if the recipient ID matches a subkey, and IF THAT SUBKEY HAS A
+      // SECRET
+      for (const auto& subkey : meta_opt->subkeys) {
+        if (subkey.key_id.toUpper() == key_id.toUpper() ||
+            subkey.fpr.toUpper() == key_id.toUpper()) {
+          if (subkey.has_secret) {
+            found_usable_secret = true;
+          } else {
+            LOG_W() << "Subkey " << key_id
+                    << " matched, but its secret is stripped/offline.";
+          }
+          break;  // Stop searching subkeys for this specific recipient_id
+        }
+      }
+    }
+
+    // If we found a usable secret key, fetch the actual key block and stop
+    // searching
+    if (found_usable_secret) {
+      auto blocks = key_db->GetKeyBlocks(meta_opt->fpr);
+      if (blocks && !blocks->secret_key.isEmpty()) {
+        target_secret_key_block = blocks->secret_key;
+        target_primary_fpr = meta_opt->fpr;
+        break;
+      }
+      // Fallback in case DB is inconsistent
+      found_usable_secret = false;
+    }
+  }
+
+  // 3. Handle the result of our search
+  if (!found_usable_secret) {
+    LOG_E() << "No USABLE secret key found in local database to decrypt this "
+               "message. "
+            << "Keys might be offline or on a smartcard.";
+    return GPG_ERR_NO_SECKEY;
+  }
+
+  uint8_t* out_data;
+  size_t out_len = 0;
+  char* out_name;
+  auto secret_key_utf8 = target_secret_key_block.toUtf8();
+
+  err = Rust::gfr_crypto_decrypt_data(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      secret_key_utf8.constData(), "123456", &out_name, &out_data, &out_len);
+
+  if (err != Rust::GfrStatus::Success || out_data == nullptr) {
+    LOG_E() << "Rust FFI decryption failed.";
+    return GPG_ERR_GENERAL;
+  }
+
   data_object->Swap({
-      GpgDecryptResult(gpgme_op_decrypt_result(ctx_.DefaultContext())),
-      data_out.Read2GFBuffer(),
+      GpgDecryptResult(),
+      GFBuffer(reinterpret_cast<const char*>(out_data), out_len),
   });
-  return err;
+
+  Rust::gfr_crypto_free_buffer(out_data, out_len);
+  Rust::gfr_crypto_free_string(out_name);
+  return GPG_ERR_NO_ERROR;
 }
 
 void GpgBasicOperator::Decrypt(const GFBuffer& in_buffer,
@@ -325,12 +417,89 @@ auto SignImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& signers,
   return err;
 }
 
+auto SignRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& signers,
+                  const GFBuffer& in_buffer, GpgSignMode mode, bool ascii,
+                  const DataObjectPtr& data_object) -> GpgError {
+  if (signers.isEmpty()) {
+    return GPG_ERR_INV_ARG;
+  }
+
+  auto key_db = ctx.KeyDatabase();
+  if (!key_db) return GPG_ERR_GENERAL;
+
+  std::vector<QByteArray> skey_utf8_list;
+  std::vector<QByteArray> pwd_utf8_list;
+  std::vector<const char*> c_skeys;
+  std::vector<const char*> c_pwds;
+
+  // Fetch key blocks and safely store memory
+  for (const auto& signer : signers) {
+    auto blocks = key_db->GetKeyBlocks(signer->Fingerprint());
+    if (!blocks || blocks->secret_key.isEmpty()) {
+      LOG_E() << "Failed to find secret key block for FPR: "
+              << signer->Fingerprint();
+      return GPG_ERR_NO_SECKEY;
+    }
+
+    skey_utf8_list.push_back(blocks->secret_key.toUtf8());
+    // Placeholder password, replace with actual if needed
+    pwd_utf8_list.emplace_back("123456");
+  }
+
+  // Extract C-string pointers
+  for (size_t i = 0; i < skey_utf8_list.size(); ++i) {
+    c_skeys.push_back(skey_utf8_list[i].constData());
+    c_pwds.push_back(pwd_utf8_list[i].constData());
+  }
+
+  QByteArray name_utf8;
+  uint8_t* c_out_data = nullptr;
+  size_t c_out_len = 0;
+  Rust::GfrSignMode rs_mode;
+
+  if (mode == GPGME_SIG_MODE_DETACH) {
+    rs_mode = Rust::GfrSignMode::Detached;
+  } else if (mode == GPGME_SIG_MODE_CLEAR) {
+    rs_mode = Rust::GfrSignMode::ClearText;
+  } else {
+    rs_mode = Rust::GfrSignMode::Inline;
+  }
+
+  auto status = Rust::gfr_crypto_sign_data(
+      name_utf8.constData(), reinterpret_cast<const uint8_t*>(in_buffer.Data()),
+      in_buffer.Size(), c_skeys.data(), c_pwds.data(), c_skeys.size(), rs_mode,
+      ascii, &c_out_data, &c_out_len);
+
+  if (status != Rust::GfrStatus::Success) {
+    LOG_E() << "Rust FFI multi-signature failed with status: "
+            << static_cast<int>(status);
+    return GPG_ERR_GENERAL;
+  }
+
+  if ((c_out_data != nullptr) && c_out_len > 0) {
+    data_object->Swap({
+        GpgSignResult(),
+        GFBuffer(reinterpret_cast<const char*>(c_out_data), c_out_len),
+    });
+    Rust::gfr_crypto_free_buffer(c_out_data, c_out_len);
+  } else {
+    LOG_E() << "Rust FFI multi-signature returned no data.";
+    return GPG_ERR_GENERAL;
+  }
+
+  return GPG_ERR_NO_ERROR;
+}
+
 void GpgBasicOperator::Sign(const GpgAbstractKeyPtrList& signers,
                             const GFBuffer& in_buffer, GpgSignMode mode,
                             bool ascii, const GpgOperationCallback& cb) {
   RunGpgOperaAsync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return SignRpgpImpl(ctx_, signers, in_buffer, mode, ascii,
+                              data_object);
+        }
         return SignImpl(ctx_, signers, in_buffer, mode, ascii, data_object);
       },
       cb, "gpgme_op_sign", "2.2.0");
@@ -342,7 +511,11 @@ auto GpgBasicOperator::SignSync(const GpgAbstractKeyPtrList& signers,
     -> std::tuple<GpgError, DataObjectPtr> {
   return RunGpgOperaSync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return SignRpgpImpl(ctx_, signers, in_buffer, mode, ascii,
+                              data_object);
+        }
         return SignImpl(ctx_, signers, in_buffer, mode, ascii, data_object);
       },
       "gpgme_op_sign", "2.2.0");
