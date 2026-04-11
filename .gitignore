@@ -3,6 +3,7 @@ src/GpgFrontend.h
 src/GpgFrontendBuildInfo.h
 src/GpgFrontendBuildInstallInfo.h
 src/core/GpgFrontendCoreExport.h
+src/core/GpgCoreRust.h
 src/ui/GpgFrontendUIExport.h
 src/test/GpgFrontendTestExport.h
 src/sdk/GFSDKExport.h
