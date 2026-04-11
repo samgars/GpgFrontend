@@ -72,7 +72,7 @@ target_include_directories(${LIBRARY_TARGET} PRIVATE ${LibArchive_INCLUDE_DIR})
 target_link_libraries(${LIBRARY_TARGET} PRIVATE archive)
 
 # link qt
-target_link_libraries(${LIBRARY_TARGET} PUBLIC Qt::Core Qt::Gui)
+target_link_libraries(${LIBRARY_TARGET} PUBLIC Qt::Core Qt::Gui Qt::Sql)
 
 # link rust support library if enabled
 if(BUILD_RUST_SUPPORT)

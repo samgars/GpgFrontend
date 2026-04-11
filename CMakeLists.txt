@@ -352,7 +352,7 @@ if(GPGFRONTEND_QT5_BUILD)
   find_package(Qt5 5.15 COMPONENTS Core Widgets PrintSupport Network LinguistTools Xml REQUIRED)
 else()
   # Support Qt version: 6.x
-  find_package(Qt6 6 COMPONENTS Core Widgets PrintSupport Network LinguistTools Xml REQUIRED)
+  find_package(Qt6 6 COMPONENTS Core Widgets PrintSupport Network LinguistTools Xml Sql REQUIRED)
 endif()
 
 # Qt configuration
