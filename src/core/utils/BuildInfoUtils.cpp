@@ -76,4 +76,11 @@ auto GetProjectLibarchiveVersion() -> QString {
 
 auto GetHttpRequestUserAgent() -> QString { return HTTP_REQUEST_USER_AGENT; }
 
+auto HasRustSupport() -> bool {
+#ifdef HAS_RUST_SUPPORT
+  return true;
+#else
+  return false
+#endif
+}
 };  // namespace GpgFrontend

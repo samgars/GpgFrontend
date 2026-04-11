@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "core/GpgCoreRust.h"
 #include "core/model/GpgAbstractKey.h"
 #include "core/model/KeyDatabaseInfo.h"
 #include "core/struct/settings_object/KeyDatabaseItemSO.h"
@@ -243,4 +244,12 @@ auto GF_CORE_EXPORT DecidePinentry() -> QString;
  * @return QString
  */
 auto GF_CORE_EXPORT GnuPGVersion() -> QString;
+
+/**
+ * @brief Parse a user ID string into a GFUserId structure
+ *
+ * @param raw_id
+ * @return GFUserId
+ */
+auto GF_CORE_EXPORT ParseUserId(const QString& raw_id) -> GFUserId;
 }  // namespace GpgFrontend

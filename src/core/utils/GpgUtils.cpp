@@ -245,6 +245,7 @@ auto GetKeyDatabasesBySettings() -> QContainer<KeyDatabaseItemSO> {
     key_db.channel = 0;
     key_db.name = "DEFAULT";
     key_db.path = home_path;
+    key_db.backend_type = "gnupg";
 
     key_dbs.append(key_db);
   }
@@ -330,6 +331,7 @@ auto GetAllKeyDatabaseInfoBySettings() -> QContainer<KeyDatabaseInfo> {
 
     KeyDatabaseInfo key_db_info;
     key_db_info.name = key_database.name;
+    key_db_info.backend_type = key_database.backend_type;
     key_db_info.path = key_database_fs_path;
     key_db_info.origin_path = key_database.path;
     key_db_info.valid = !key_database_fs_path.isEmpty();
@@ -345,11 +347,11 @@ auto GetKeyDatabaseInfoBySettings() -> QContainer<KeyDatabaseInfo> {
   auto key_db_infos = GetAllKeyDatabaseInfoBySettings();
 
   // filter out invalid key databases
-  key_db_infos.erase(std::remove_if(key_db_infos.begin(), key_db_infos.end(),
-                                    [](const auto& key_db_info) -> auto {
-                                      return !key_db_info.valid;
-                                    }),
-                     key_db_infos.end());
+  key_db_infos.erase(
+      std::remove_if(
+          key_db_infos.begin(), key_db_infos.end(),
+          [](const auto& key_db_info) -> auto{ return !key_db_info.valid; }),
+      key_db_infos.end());
 
   return key_db_infos;
 }
@@ -512,9 +514,30 @@ auto GF_CORE_EXPORT DecidePinentry() -> QString {
   return {};
 }
 
-auto GF_CORE_EXPORT GnuPGVersion() -> QString {
+auto GnuPGVersion() -> QString {
   auto gnupg_version = Module::RetrieveRTValueTypedOrDefault<>(
       "core", "gpgme.ctx.gnupg_version", QString{});
   return gnupg_version;
 }
+
+auto ParseUserId(const QString& raw_id) -> GFUserId {
+  GFUserId uid;
+  uid.is_primary = false;
+
+  // Standard PGP UID Regex format
+  QRegularExpression regex(R"(^(.*?)(?:\s*\((.*?)\))?(?:\s*<(.*?)>)?$)");
+  QRegularExpressionMatch match = regex.match(raw_id);
+
+  if (match.hasMatch()) {
+    uid.name = match.captured(1).trimmed();
+    uid.comment = match.captured(2).trimmed();
+    uid.email = match.captured(3).trimmed();
+  } else {
+    // Fallback if it's just a raw string without standard formatting
+    uid.name = raw_id;
+  }
+
+  return uid;
+}
+
 }  // namespace GpgFrontend

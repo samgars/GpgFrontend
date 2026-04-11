@@ -136,4 +136,11 @@ auto GF_CORE_EXPORT GetHttpRequestUserAgent() -> QString;
  */
 auto GF_CORE_EXPORT IsCheckReleaseCommitHash() -> bool;
 
+/**
+ * @brief
+ *
+ * @return auto
+ */
+auto GF_CORE_EXPORT HasRustSupport() -> bool;
+
 }  // namespace GpgFrontend
