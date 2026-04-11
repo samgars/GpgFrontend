@@ -36,13 +36,21 @@
 
 namespace GpgFrontend {
 
+class GFKeyDatabase;
+
+enum class PGPBackendType : std::uint8_t {
+  kGNUPG,
+  kRPGP,
+};
+
 /**
  * @brief
  *
  */
 struct GpgContextInitArgs {
-  QString db_name;  ///<
-  QString db_path;  ///<
+  PGPBackendType backend_type;  ///<
+  QString db_name;              ///<
+  QString db_path;              ///<
 
   bool test_mode = false;                ///<
   bool offline_mode = false;             ///<
@@ -75,6 +83,13 @@ class GF_CORE_EXPORT GpgContext : public SingletonFunctionObject<GpgContext> {
    * @return false
    */
   [[nodiscard]] auto Good() const -> bool;
+
+  /**
+   * @brief
+   *
+   * @return PGPBackendType
+   */
+  [[nodiscard]] auto BackendType() const -> PGPBackendType;
 
   /**
    * @brief
@@ -118,6 +133,13 @@ class GF_CORE_EXPORT GpgContext : public SingletonFunctionObject<GpgContext> {
    * @return false
    */
   auto RestartGpgAgent() -> bool;
+
+  /**
+   * @brief 
+   * 
+   * @return QSharedPointer<GFKeyDatabase> 
+   */
+  auto KeyDatabase() -> QSharedPointer<GFKeyDatabase>;
 
  private:
   class Impl;

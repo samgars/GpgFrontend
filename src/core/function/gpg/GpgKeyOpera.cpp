@@ -28,6 +28,7 @@
 
 #include "GpgKeyOpera.h"
 
+#include "core/GpgCoreRust.h"
 #include "core/function/gpg/GpgCommandExecutor.h"
 #include "core/function/gpg/GpgKeyGroupGetter.h"
 #include "core/model/DataObject.h"
@@ -36,10 +37,65 @@
 #include "core/module/ModuleManager.h"
 #include "core/typedef/GpgTypedef.h"
 #include "core/utils/AsyncUtils.h"
-#include "core/utils/CommonUtils.h"
 #include "core/utils/GpgUtils.h"
+#include "core/utils/RustUtils.h"
 
 namespace GpgFrontend {
+
+namespace {
+
+auto GenerateKeyWithSubkeyRPGPImpl(
+    GpgKeyImportExporter& kie, const QSharedPointer<KeyGenerateInfo>& p_params,
+    const QSharedPointer<KeyGenerateInfo>& s_params,
+    const DataObjectPtr& data_object) -> GpgError {
+  char* o_s_key = nullptr;
+  char* o_p_key = nullptr;
+  char* o_fpr = nullptr;
+  Rust::GfrKeyConfig key_config;
+  key_config.algo = KeyAlgoId2GfrKeyAlgo(p_params->GetAlgo().Id());
+  key_config.can_sign = p_params->IsAllowSign();
+  key_config.can_encrypt = p_params->IsAllowEncr();
+  key_config.can_auth = p_params->IsAllowAuth();
+
+  Rust::GfrStatus err = Rust::GfrStatus::Success;
+  if (s_params != nullptr) {
+    std::array<Rust::GfrKeyConfig, 1> s_key_configs;
+    s_key_configs[0].algo = KeyAlgoId2GfrKeyAlgo(s_params->GetAlgo().Id());
+    s_key_configs[0].can_sign = s_params->IsAllowSign();
+    s_key_configs[0].can_encrypt = s_params->IsAllowEncr();
+    s_key_configs[0].can_auth = s_params->IsAllowAuth();
+
+    err = Rust::gfr_crypto_create_key_custom(
+        p_params->GetUserid().toUtf8().constData(), "123456", key_config,
+        s_key_configs.data(), s_key_configs.size(), &o_s_key, &o_p_key, &o_fpr);
+  } else {
+    err = Rust::gfr_crypto_create_key_custom(
+        p_params->GetUserid().toUtf8().constData(), "123456", key_config,
+        nullptr, 0, &o_s_key, &o_p_key, &o_fpr);
+  }
+
+  if (err != Rust::GfrStatus::Success) {
+    data_object->Swap({GpgGenerateKeyResult{}});
+    LOG_D() << "gfr_crypto_create_v6_key error, code: "
+            << static_cast<int>(err);
+    return GPG_ERR_GENERAL;
+  }
+
+  QString armored_s_key = QString::fromUtf8(o_s_key);
+  QString armored_p_key = QString::fromUtf8(o_p_key);
+
+  Rust::gfr_crypto_free_string(o_s_key);
+  Rust::gfr_crypto_free_string(o_p_key);
+
+  auto import_info = kie.ImportKey(GFBuffer(armored_s_key));
+
+  data_object->Swap({
+      GpgGenerateKeyResult{QString::fromUtf8(o_fpr)},
+      GpgGenerateKeyResult{QString::fromUtf8(o_fpr)},
+  });
+  return GPG_ERR_NO_ERROR;
+}
+}  // namespace
 
 GpgKeyOpera::GpgKeyOpera(int channel)
     : SingletonFunctionObject<GpgKeyOpera>(channel) {}
@@ -164,6 +220,13 @@ void GpgKeyOpera::GenerateRevokeCert(const GpgKeyPtr& key,
        }});
 }
 
+auto GenerateKeyRPGPImpl(GpgKeyImportExporter& key_import_exporter,
+                         const QSharedPointer<KeyGenerateInfo>& params,
+                         const DataObjectPtr& data_object) -> GpgError {
+  return GenerateKeyWithSubkeyRPGPImpl(key_import_exporter, params, nullptr,
+                                       data_object);
+}
+
 auto GenerateKeyImpl(GpgContext& ctx,
                      const QSharedPointer<KeyGenerateInfo>& params,
                      const DataObjectPtr& data_object) -> GpgError {
@@ -216,6 +279,9 @@ void GpgKeyOpera::GenerateKey(const QSharedPointer<KeyGenerateInfo>& params,
   RunGpgOperaAsync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return GenerateKeyRPGPImpl(key_import_exporter_, params, data_object);
+        }
         return GenerateKeyImpl(ctx_, params, data_object);
       },
       callback, "gpgme_op_createkey", "2.2.0");
@@ -226,6 +292,9 @@ auto GpgKeyOpera::GenerateKeySync(const QSharedPointer<KeyGenerateInfo>& params)
   return RunGpgOperaSync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return GenerateKeyRPGPImpl(key_import_exporter_, params, data_object);
+        }
         return GenerateKeyImpl(ctx_, params, data_object);
       },
       "gpgme_op_createkey", "2.2.0");
@@ -243,7 +312,8 @@ auto GenerateSubKeyImpl(GpgContext& ctx, const GpgKeyPtr& key,
   LOG_D() << "primary subkey algo: " << algo
           << ", sub algo: " << params->SubAlgo().Id();
 
-  if (params->SubAlgo().Id() != KeyGenerateInfo::kNoneAlgo.Id()) {
+  if (params->SubAlgo().Id() != KeyGenerateInfo::kNoneAlgo.Id() &&
+      !params->SubAlgo().Id().isEmpty()) {
     algo += "_" + params->SubAlgo().Id();
     LOG_D() << "hybrid subkey algo: " << algo;
   }
@@ -331,6 +401,10 @@ void GpgKeyOpera::GenerateKeyWithSubkey(
   RunGpgOperaAsync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return GenerateKeyWithSubkeyRPGPImpl(key_import_exporter_, p_params,
+                                               s_params, data_object);
+        }
         return GenerateKeyWithSubkeyImpl(ctx_, key_getter_, p_params, s_params,
                                          data_object);
       },
@@ -344,6 +418,10 @@ auto GpgKeyOpera::GenerateKeyWithSubkeySync(
   return RunGpgOperaSync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return GenerateKeyWithSubkeyRPGPImpl(key_import_exporter_, p_params,
+                                               s_params, data_object);
+        }
         return GenerateKeyWithSubkeyImpl(ctx_, key_getter_, p_params, s_params,
                                          data_object);
       },

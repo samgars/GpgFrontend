@@ -28,10 +28,9 @@
 
 #pragma once
 
-#include <functional>
-
 #include "core/function/gpg/GpgContext.h"
 #include "core/function/gpg/GpgKeyGetter.h"
+#include "core/function/gpg/GpgKeyImportExporter.h"
 #include "core/typedef/GpgTypedef.h"
 
 namespace GpgFrontend {
@@ -194,5 +193,9 @@ class GF_CORE_EXPORT GpgKeyOpera : public SingletonFunctionObject<GpgKeyOpera> {
 
   GpgKeyGetter& key_getter_ =
       GpgKeyGetter::GetInstance(SingletonFunctionObject::GetChannel());  ///<
+
+  GpgKeyImportExporter& key_import_exporter_ =
+      GpgKeyImportExporter::GetInstance(
+          SingletonFunctionObject::GetChannel());  ///<
 };
 }  // namespace GpgFrontend

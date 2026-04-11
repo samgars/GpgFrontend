@@ -32,6 +32,7 @@
 
 #include <mutex>
 
+#include "core/function/GFKeyDatabase.h"
 #include "core/function/gpg/GpgContext.h"
 #include "core/utils/GpgUtils.h"
 
@@ -50,6 +51,10 @@ class GpgKeyGetter::Impl : public SingletonFunctionObject<GpgKeyGetter::Impl> {
 
       LOG_W() << "get gpg key" << key_id
               << "from cache failed, channel: " << GetChannel();
+    }
+
+    if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+      return GetPubkeyPtr(key_id, true);
     }
 
     gpgme_key_t p_key = nullptr;
@@ -84,6 +89,10 @@ class GpgKeyGetter::Impl : public SingletonFunctionObject<GpgKeyGetter::Impl> {
 
       LOG_W() << "get public gpg key" << key_id
               << "from cache failed, channel: " << GetChannel();
+    }
+
+    if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+      return get_key_rpgp_impl(key_id, false);
     }
 
     gpgme_key_t p_key = nullptr;
@@ -133,57 +142,11 @@ class GpgKeyGetter::Impl : public SingletonFunctionObject<GpgKeyGetter::Impl> {
     keys_cache_.clear();
     keys_search_cache_.clear();
 
-    // init
-    GpgError err = gpgme_op_keylist_start(ctx_.DefaultContext(), nullptr, 0);
-
-    // for debug
-    assert(CheckGpgError(err) == GPG_ERR_NO_ERROR);
-
-    // return when error
-    if (CheckGpgError(err) != GPG_ERR_NO_ERROR) return false;
-
-    {
-      // get the lock
-      std::lock_guard<std::mutex> lock(keys_cache_mutex_);
-      gpgme_key_t key;
-      while ((err = gpgme_op_keylist_next(ctx_.DefaultContext(), &key)) ==
-             GPG_ERR_NO_ERROR) {
-        auto g_key = SecureCreateSharedObject<GpgKey>(key);
-
-        // detect if the key is in a smartcard
-        // if so, try to get full information using gpgme_get_key()
-        // this maybe a bug in gpgme
-        if (g_key->IsHasCardKey()) {
-          g_key = GetKeyPtr(g_key->ID(), false);
-        }
-
-        keys_cache_.push_back(g_key);
-        keys_search_cache_.insert(g_key->ID(), g_key);
-        keys_search_cache_.insert(g_key->Fingerprint(), g_key);
-
-        for (const auto& s_key : g_key->SubKeys()) {
-          if (s_key.ID() == g_key->ID()) continue;
-
-          // don't add adsk key or it will cause bugs
-          if (s_key.IsADSK()) continue;
-
-          // subkeys should be weaker than primary key
-          if (keys_search_cache_.contains(s_key.ID())) continue;
-
-          auto p_s_key = SecureCreateSharedObject<GpgSubKey>(s_key);
-          keys_search_cache_.insert(s_key.ID(), p_s_key);
-          keys_search_cache_.insert(s_key.Fingerprint(), p_s_key);
-        }
-      }
+    if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+      return flush_key_cache_rpgp_impl();
     }
 
-    // for debug
-    assert(CheckGpgError2ErrCode(err, GPG_ERR_EOF) == GPG_ERR_EOF);
-
-    err = gpgme_op_keylist_end(ctx_.DefaultContext());
-    assert(CheckGpgError2ErrCode(err, GPG_ERR_EOF) == GPG_ERR_NO_ERROR);
-
-    return true;
+    return flush_key_cache_impl();
   }
 
   auto GetKeys(const KeyIdArgsList& ids) -> GpgKeyList {
@@ -273,6 +236,110 @@ class GpgKeyGetter::Impl : public SingletonFunctionObject<GpgKeyGetter::Impl> {
 
     // return a bad key
     return {};
+  }
+
+  auto flush_key_cache_impl() -> bool {
+    // init
+    GpgError err = gpgme_op_keylist_start(ctx_.DefaultContext(), nullptr, 0);
+
+    // for debug
+    assert(CheckGpgError(err) == GPG_ERR_NO_ERROR);
+
+    // return when error
+    if (CheckGpgError(err) != GPG_ERR_NO_ERROR) return false;
+
+    {
+      // get the lock
+      std::lock_guard<std::mutex> lock(keys_cache_mutex_);
+      gpgme_key_t key;
+      while ((err = gpgme_op_keylist_next(ctx_.DefaultContext(), &key)) ==
+             GPG_ERR_NO_ERROR) {
+        auto g_key = SecureCreateSharedObject<GpgKey>(key);
+
+        // detect if the key is in a smartcard
+        // if so, try to get full information using gpgme_get_key()
+        // this maybe a bug in gpgme
+        if (g_key->IsHasCardKey()) {
+          g_key = GetKeyPtr(g_key->ID(), false);
+        }
+
+        keys_cache_.push_back(g_key);
+        keys_search_cache_.insert(g_key->ID(), g_key);
+        keys_search_cache_.insert(g_key->Fingerprint(), g_key);
+
+        for (const auto& s_key : g_key->SubKeys()) {
+          if (s_key.ID() == g_key->ID()) continue;
+
+          // don't add adsk key or it will cause bugs
+          if (s_key.IsADSK()) continue;
+
+          // subkeys should be weaker than primary key
+          if (keys_search_cache_.contains(s_key.ID())) continue;
+
+          auto p_s_key = SecureCreateSharedObject<GpgSubKey>(s_key);
+          keys_search_cache_.insert(s_key.ID(), p_s_key);
+          keys_search_cache_.insert(s_key.Fingerprint(), p_s_key);
+        }
+      }
+    }
+
+    // for debug
+    assert(CheckGpgError2ErrCode(err, GPG_ERR_EOF) == GPG_ERR_EOF);
+
+    err = gpgme_op_keylist_end(ctx_.DefaultContext());
+    assert(CheckGpgError2ErrCode(err, GPG_ERR_EOF) == GPG_ERR_NO_ERROR);
+
+    return true;
+  }
+
+  auto flush_key_cache_rpgp_impl() -> bool {
+    auto key_db = ctx_.KeyDatabase();
+    if (key_db == nullptr) {
+      LOG_E() << "key database is not initialized";
+      return false;
+    }
+
+    auto key_meta_list = key_db->GetMetadataList();
+    {
+      // get the lock
+      std::lock_guard<std::mutex> lock(keys_cache_mutex_);
+
+      for (const auto& meta : key_meta_list) {
+        auto key = QSharedPointer<GpgKey>::create(meta);
+        if (key == nullptr) {
+          LOG_W() << "cannot get key with fpr: " << meta.fpr;
+          continue;
+        }
+
+        keys_cache_.push_back(key);
+        keys_search_cache_.insert(meta.fpr, key);
+        keys_search_cache_.insert(meta.key_id, key);
+      }
+    }
+
+    return true;
+  }
+
+  auto get_key_rpgp_impl(const QString& key_id, bool secret) -> GpgKeyPtr {
+    auto key_db = ctx_.KeyDatabase();
+    if (key_db == nullptr) {
+      LOG_E() << "cannot get key database for channel: " << GetChannel();
+      return nullptr;
+    }
+
+    auto meta_list = key_db->GetKeyMetadata(key_id);
+    if (!meta_list.has_value()) {
+      LOG_W() << "cannot get key metadata for key id: " << key_id;
+      return nullptr;
+    }
+
+    if (secret && !meta_list->has_secret) {
+      LOG_W() << "key with fpr: " << key_id
+              << " does not have secret key, but requested to get secret key";
+      return nullptr;
+    }
+
+    return SecureCreateSharedObject<GpgKey>(meta_list.value());
   }
 };
 

@@ -34,11 +34,10 @@
 #include <cassert>
 #include <mutex>
 
-#include "core/function/CoreSignalStation.h"
+#include "core/function/GFKeyDatabase.h"
 #include "core/function/basic/GpgFunctionObject.h"
-#include "core/model/GpgPassphraseContext.h"
 #include "core/module/ModuleManager.h"
-#include "core/utils/CacheUtils.h"
+#include "core/utils/BuildInfoUtils.h"
 #include "core/utils/GpgUtils.h"
 #include "core/utils/MemoryUtils.h"
 
@@ -145,6 +144,7 @@ class GpgContext::Impl {
   Impl(GpgContext *parent, const GpgContextInitArgs &args)
       : parent_(parent),
         args_(args),
+        backend_type_(args.backend_type),
         db_name_(args.db_name),
         gpgconf_path_(Module::RetrieveRTValueTypedOrDefault<>(
             "core", "gpgme.ctx.gpgconf_path", QString{})),
@@ -157,20 +157,30 @@ class GpgContext::Impl {
   }
 
   ~Impl() {
-    if (ctx_ref_ != nullptr) {
-      gpgme_release(ctx_ref_);
+    if (backend_type_ == PGPBackendType::kGNUPG) {
+      if (ctx_ref_ != nullptr) {
+        gpgme_release(ctx_ref_);
+      }
+
+      if (binary_ctx_ref_ != nullptr) {
+        gpgme_release(binary_ctx_ref_);
+      }
     }
 
-    if (binary_ctx_ref_ != nullptr) {
-      gpgme_release(binary_ctx_ref_);
+    if (key_db_ != nullptr) {
+      key_db_.clear();
     }
   }
 
   [[nodiscard]] auto BinaryContext() const -> gpgme_ctx_t {
+    assert(backend_type_ == PGPBackendType::kGNUPG);
     return binary_ctx_ref_;
   }
 
-  [[nodiscard]] auto DefaultContext() const -> gpgme_ctx_t { return ctx_ref_; }
+  [[nodiscard]] auto DefaultContext() const -> gpgme_ctx_t {
+    assert(backend_type_ == PGPBackendType::kGNUPG);
+    return ctx_ref_;
+  }
 
   [[nodiscard]] auto Good() const -> bool { return good_; }
 
@@ -225,6 +235,8 @@ class GpgContext::Impl {
   [[nodiscard]] auto KeyDBName() const -> QString { return db_name_; }
 
   auto RestartGpgAgent() -> bool {
+    assert(backend_type_ == PGPBackendType::kGNUPG);
+
     if (agent_ != nullptr) {
       agent_ = SecureCreateSharedObject<GpgAgentProcess>(
           parent_->GetChannel(), gpg_agent_path_, database_path_);
@@ -234,6 +246,13 @@ class GpgContext::Impl {
     kill_gpg_agent();
 
     return launch_gpg_agent();
+  }
+
+  auto BackendType() -> PGPBackendType { return backend_type_; }
+
+  auto KeyDatabase() -> QSharedPointer<GFKeyDatabase> {
+    assert(backend_type_ == PGPBackendType::kRPGP);
+    return backend_type_ == PGPBackendType::kRPGP ? key_db_ : nullptr;
   }
 
  private:
@@ -248,24 +267,56 @@ class GpgContext::Impl {
   std::mutex ctx_ref_lock_;
   std::mutex binary_ctx_ref_lock_;
 
+  PGPBackendType backend_type_;
   QString db_name_;
   QString gpgconf_path_;
   QString database_path_;
   QString gpg_agent_path_;
   QMap<QString, QString> component_dirs_;
   QSharedPointer<GpgAgentProcess> agent_;
+  QSharedPointer<GFKeyDatabase> key_db_;
 
   void init(const GpgContextInitArgs &args) {
-    assert(!gpgconf_path_.isEmpty());
-    assert(!database_path_.isEmpty());
+    // try to use rpgp backend if possible
+    if (HasRustSupport() && backend_type_ == PGPBackendType::kRPGP) {
+      assert(!database_path_.isEmpty());
 
-    // init
-    get_gpg_conf_dirs();
-    kill_gpg_agent();
+      key_db_ = SecureCreateSharedObject<GFKeyDatabase>();
+      good_ = key_db_->Init(database_path_);
+    } else {
+      // fallback to gnupg backend
+      backend_type_ = PGPBackendType::kGNUPG;
 
-    good_ = launch_gpg_agent() && default_ctx_initialize(args) &&
-            binary_ctx_initialize(args) && cms_default_ctx_initialize(args) &&
-            cms_binary_ctx_initialize(args);
+      assert(!gpgconf_path_.isEmpty());
+      assert(!database_path_.isEmpty());
+
+      // init
+      get_gpg_conf_dirs();
+      kill_gpg_agent();
+
+      good_ = launch_gpg_agent() && default_ctx_initialize(args) &&
+              binary_ctx_initialize(args) && cms_default_ctx_initialize(args) &&
+              cms_binary_ctx_initialize(args);
+    }
+
+    if (good_) {
+      Module::UpsertRTValue(
+          "core",
+          QString("gpgme.ctx.list.%1.channel").arg(parent_->GetChannel()),
+          parent_->GetChannel());
+      Module::UpsertRTValue(
+          "core",
+          QString("gpgme.ctx.list.%1.database_name").arg(parent_->GetChannel()),
+          args_.db_name);
+      Module::UpsertRTValue(
+          "core",
+          QString("gpgme.ctx.list.%1.database_path").arg(parent_->GetChannel()),
+          args_.db_path);
+      Module::UpsertRTValue(
+          "core",
+          QString("gpgme.ctx.list.%1.backend_type").arg(parent_->GetChannel()),
+          args_.backend_type);
+    }
   }
 
   static auto component_type_to_q_string(GpgComponentType type) -> QString {
@@ -374,18 +425,6 @@ class GpgContext::Impl {
       FLOG_W("set gpgme context openpgp engine info failed");
       return false;
     }
-
-    Module::UpsertRTValue(
-        "core", QString("gpgme.ctx.list.%1.channel").arg(parent_->GetChannel()),
-        parent_->GetChannel());
-    Module::UpsertRTValue(
-        "core",
-        QString("gpgme.ctx.list.%1.database_name").arg(parent_->GetChannel()),
-        args_.db_name);
-    Module::UpsertRTValue(
-        "core",
-        QString("gpgme.ctx.list.%1.database_path").arg(parent_->GetChannel()),
-        args_.db_path);
 
     return true;
   }
@@ -601,4 +640,12 @@ auto GpgContext::ComponentDirectory(GpgComponentType type) const -> QString {
 auto GpgContext::KeyDBName() const -> QString { return p_->KeyDBName(); }
 
 auto GpgContext::RestartGpgAgent() -> bool { return p_->RestartGpgAgent(); }
+
+auto GpgContext::BackendType() const -> PGPBackendType {
+  return p_->BackendType();
+}
+
+auto GpgContext::KeyDatabase() -> QSharedPointer<GFKeyDatabase> {
+  return p_->KeyDatabase();
+}
 }  // namespace GpgFrontend

@@ -28,12 +28,135 @@
 
 #include "GpgKeyImportExporter.h"
 
+#include "core/GpgCoreRust.h"
+#include "core/function/GFKeyDatabase.h"
 #include "core/model/GpgData.h"
 #include "core/model/GpgImportInformation.h"
 #include "core/utils/AsyncUtils.h"
 #include "core/utils/GpgUtils.h"
 
 namespace GpgFrontend {
+
+namespace {
+
+auto ImportKeyImpl(GpgContext& ctx, const GFBuffer& in_buffer)
+    -> QSharedPointer<GpgImportInformation> {
+  if (in_buffer.Empty()) return {};
+
+  GpgData data_in(in_buffer);
+  auto err = CheckGpgError(gpgme_op_import(ctx.BinaryContext(), data_in));
+  if (gpgme_err_code(err) != GPG_ERR_NO_ERROR) return {};
+
+  gpgme_import_result_t result;
+  result = gpgme_op_import_result(ctx.BinaryContext());
+  gpgme_import_status_t status = result->imports;
+
+  auto import_info = SecureCreateSharedObject<GpgImportInformation>(result);
+  while (status != nullptr) {
+    GpgImportInformation::GpgImportedKey key;
+    key.import_status = static_cast<int>(status->status);
+    key.fpr = status->fpr;
+    import_info->imported_keys.push_back(key);
+    status = status->next;
+  }
+  return import_info;
+}
+
+auto ImportKeyRPGPImpl(GpgContext& ctx, const GFBuffer& in_buffer)
+    -> QSharedPointer<GpgImportInformation> {
+  if (in_buffer.Empty()) return {};
+
+  Rust::GfrKeyMetadataC out_metadata;
+  auto key_db = ctx.KeyDatabase();
+
+  if (key_db == nullptr) {
+    LOG_E() << "key database is not initialized";
+    return {};
+  }
+
+  auto err = Rust::gfr_crypto_extract_metadata(in_buffer.Data(), &out_metadata);
+  if (err != Rust::GfrStatus::Success) {
+    LOG_E() << "gfr_crypto_extract_metadata error, code: "
+            << static_cast<int>(err);
+    return {};
+  }
+
+  GFKeyMetadata meta;
+  meta.fpr = QString::fromUtf8(out_metadata.fpr);
+  meta.key_id = QString::fromUtf8(out_metadata.key_id);
+  meta.user_id = QString::fromUtf8(out_metadata.user_id);
+  meta.created_at = static_cast<qint64>(out_metadata.created_at);
+  meta.has_secret = out_metadata.has_secret;
+  meta.algo = static_cast<int>(out_metadata.algo);
+
+  meta.can_sign = out_metadata.can_sign;
+  meta.can_encrypt = out_metadata.can_encrypt;
+  meta.can_auth = out_metadata.can_auth;
+  meta.can_certify = out_metadata.can_certify;
+
+  for (size_t i = 0; i < out_metadata.subkey_count; ++i) {
+    const auto& subkey_meta = out_metadata.subkeys[i];
+    GFSubKeyMetadata sub_meta;
+    sub_meta.fpr = QString::fromUtf8(subkey_meta.fpr);
+    sub_meta.key_id = QString::fromUtf8(subkey_meta.key_id);
+    sub_meta.created_at = static_cast<qint64>(subkey_meta.created_at);
+    sub_meta.has_secret = subkey_meta.has_secret;
+    sub_meta.algo = static_cast<int>(subkey_meta.algo);
+
+    sub_meta.can_sign = subkey_meta.can_sign;
+    sub_meta.can_encrypt = subkey_meta.can_encrypt;
+    sub_meta.can_auth = subkey_meta.can_auth;
+    sub_meta.can_certify = subkey_meta.can_certify;
+
+    LOG_D() << "imported subkey metadata, fpr: " << sub_meta.fpr
+            << ", key_id: " << sub_meta.key_id
+            << ", created_at: " << sub_meta.created_at
+            << ", has_secret: " << sub_meta.has_secret
+            << ", can_sign: " << sub_meta.can_sign
+            << ", can_encrypt: " << sub_meta.can_encrypt
+            << ", can_auth: " << sub_meta.can_auth
+            << ", can_certify: " << sub_meta.can_certify;
+
+    meta.subkeys.push_back(sub_meta);
+  }
+
+  Rust::gfr_crypto_free_metadata(&out_metadata);
+
+  LOG_D() << "imported key metadata, fpr: " << meta.fpr
+          << ", key_id: " << meta.key_id << ", user_id: " << meta.user_id
+          << ", created_at: " << meta.created_at
+          << ", has_secret: " << meta.has_secret
+          << ", can_sign: " << meta.can_sign
+          << ", can_encrypt: " << meta.can_encrypt
+          << ", can_auth: " << meta.can_auth
+          << ", can_certify: " << meta.can_certify;
+
+  GFKeyBlocks blocks;
+  if (meta.has_secret) {
+    blocks.secret_key = in_buffer.ConvertToQString();
+
+    char* public_key = nullptr;
+    auto err =
+        Rust::gfr_crypto_extract_public_key(in_buffer.Data(), &public_key);
+
+    if (err != Rust::GfrStatus::Success) {
+      LOG_E() << "gfr_crypto_extract_public_key error, code: "
+              << static_cast<int>(err);
+      return {};
+    }
+
+    blocks.public_key = QString::fromUtf8(public_key);
+    Rust::gfr_crypto_free_string(public_key);
+
+  } else {
+    blocks.public_key = in_buffer.ConvertToQString();
+  }
+
+  key_db->SaveKey(meta, blocks);
+
+  return {};
+}
+}  // namespace
 
 GpgKeyImportExporter::GpgKeyImportExporter(int channel)
     : SingletonFunctionObject<GpgKeyImportExporter>(channel),
@@ -46,25 +169,11 @@ GpgKeyImportExporter::GpgKeyImportExporter(int channel)
  */
 auto GpgKeyImportExporter::ImportKey(const GFBuffer& in_buffer)
     -> QSharedPointer<GpgImportInformation> {
-  if (in_buffer.Empty()) return {};
-
-  GpgData data_in(in_buffer);
-  auto err = CheckGpgError(gpgme_op_import(ctx_.BinaryContext(), data_in));
-  if (gpgme_err_code(err) != GPG_ERR_NO_ERROR) return {};
-
-  gpgme_import_result_t result;
-  result = gpgme_op_import_result(ctx_.BinaryContext());
-  gpgme_import_status_t status = result->imports;
-
-  auto import_info = SecureCreateSharedObject<GpgImportInformation>(result);
-  while (status != nullptr) {
-    GpgImportInformation::GpgImportedKey key;
-    key.import_status = static_cast<int>(status->status);
-    key.fpr = status->fpr;
-    import_info->imported_keys.push_back(key);
-    status = status->next;
+  if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+    return ImportKeyRPGPImpl(ctx_, in_buffer);
   }
-  return import_info;
+
+  return ImportKeyImpl(ctx_, in_buffer);
 }
 
 /**

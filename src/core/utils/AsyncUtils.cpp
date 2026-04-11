@@ -28,6 +28,7 @@
 
 #include "AsyncUtils.h"
 
+#include "core/function/gpg/GpgContext.h"
 #include "core/model/DataObject.h"
 #include "core/module/ModuleManager.h"
 #include "core/thread/Task.h"
@@ -40,7 +41,10 @@ auto RunGpgOperaAsync(int channel, const GpgOperaRunnable& runnable,
                       const GpgOperationCallback& callback,
                       const QString& operation, const QString& minimal_version)
     -> Thread::Task::TaskHandler {
-  if (!CheckGpgVersion(channel, minimal_version)) {
+  auto& ctx = GpgContext::GetInstance(channel);
+
+  if (ctx.BackendType() == PGPBackendType::kGNUPG &&
+      !CheckGpgVersion(channel, minimal_version)) {
     LOG_W() << "operation: " << operation << "is not supported.";
     callback(GPG_ERR_NOT_SUPPORTED, TransferParams());
     return Thread::Task::TaskHandler(nullptr);
