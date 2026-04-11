@@ -29,6 +29,7 @@
 
 #include <gpgme.h>
 
+#include "core/GpgCoreRust.h"
 #include "core/function/CacheManager.h"
 #include "core/function/CoreSignalStation.h"
 #include "core/function/GlobalSettingStation.h"
@@ -39,6 +40,7 @@
 #include "core/module/ModuleManager.h"
 #include "core/thread/Task.h"
 #include "core/thread/TaskRunnerGetter.h"
+#include "core/utils/BuildInfoUtils.h"
 #include "core/utils/CommonUtils.h"
 #include "core/utils/GpgUtils.h"
 #include "core/utils/MemoryUtils.h"
@@ -454,6 +456,13 @@ auto InitGpgFrontendCore(CoreInitArgs args) -> int {
     return -1;
   }
 
+#ifdef HAS_RUST_SUPPORT
+  if (HasRustSupport()) {
+    GpgFrontend::Rust::gfr_rust_hello();
+    GpgFrontend::Rust::gfr_init_logger();
+  }
+#endif
+
   Module::UpsertRTValue("core", "env.state.gpgme", 1);
 
   // decide gpgconf, gnupg and default home path
@@ -565,6 +574,13 @@ auto InitGpgFrontendCore(CoreInitArgs args) -> int {
                 if (!key_db.path.isEmpty()) {
                   args.db_name = key_db.name;
                   args.db_path = key_db.path;
+                }
+
+                // set backend type
+                if (key_db.backend_type.toLower().trimmed() == "rpgp") {
+                  args.backend_type = PGPBackendType::kRPGP;
+                } else {
+                  args.backend_type = PGPBackendType::kGNUPG;
                 }
 
                 args.offline_mode = forbid_all_gnupg_connection;
