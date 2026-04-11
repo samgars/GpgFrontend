@@ -37,6 +37,14 @@ pub enum GfrKeyAlgo {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GfrSignMode {
+    Inline = 0,
+    ClearText = 1,
+    Detached = 2,
+}
+
+#[repr(C)]
 pub struct GfrKeyConfig {
     pub algo: GfrKeyAlgo,
     pub can_sign: bool,

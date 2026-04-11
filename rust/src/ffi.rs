@@ -1,6 +1,6 @@
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
-use crate::types::{GfrKeyConfig, GfrKeyMetadataC, GfrStatus, GfrSubkeyMetadataC};
+use crate::types::{GfrKeyConfig, GfrKeyMetadataC, GfrSignMode, GfrStatus, GfrSubkeyMetadataC};
 use log::LevelFilter;
 use std::slice;
 use std::{
@@ -294,6 +294,178 @@ pub extern "C" fn gfr_crypto_encrypt_text(
         let ptr = encrypted_bytes.as_mut_ptr();
         let len = encrypted_bytes.len();
         std::mem::forget(encrypted_bytes);
+
+        unsafe {
+            *out_data = ptr;
+            *out_len = len;
+        }
+
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_decrypt_data(
+    in_data: *const u8,
+    in_len: usize,
+    secret_key: *const c_char,
+    password: *const c_char,
+    out_name: *mut *mut c_char,
+    out_data: *mut *mut u8, // Output parameter for the decrypted bytes
+    out_len: *mut usize,    // Output parameter for the length of decrypted bytes
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        // Null checks
+        if in_data.is_null()
+            || secret_key.is_null()
+            || out_name.is_null()
+            || out_data.is_null()
+            || out_len.is_null()
+        {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        // Parse inputs safely
+        let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
+        let skey_str = unsafe { CStr::from_ptr(secret_key) }.to_str().unwrap_or("");
+
+        // Password can be empty/null for unlocked keys
+        let pwd_str = if password.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(password) }.to_str().unwrap_or("")
+        };
+
+        // Perform decryption
+        let (filename, mut decrypted_bytes) =
+            crate::crypto::decrypt_internal(data_slice, skey_str, pwd_str)?;
+
+        // Transfer string ownership to C
+        let c_filename = CString::new(filename).unwrap_or_default();
+
+        // Transfer bytes ownership to C (using exact capacity to avoid memory leaks)
+        decrypted_bytes.shrink_to_fit();
+        let ptr = decrypted_bytes.as_mut_ptr();
+        let len = decrypted_bytes.len();
+        std::mem::forget(decrypted_bytes); // Deliberate leak to FFI
+
+        unsafe {
+            *out_name = c_filename.into_raw();
+            *out_data = ptr;
+            *out_len = len;
+        }
+
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_get_recipients(
+    in_data: *const u8,
+    in_len: usize,
+    out_recipients: *mut *mut c_char,
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        if in_data.is_null() || out_recipients.is_null() {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
+        let recipients_csv = crate::crypto::get_message_recipients_internal(data_slice)?;
+
+        let c_str = CString::new(recipients_csv).map_err(|_| GfrStatus::ErrorInternal)?;
+        unsafe {
+            *out_recipients = c_str.into_raw();
+        }
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_sign_data(
+    name: *const c_char,
+    in_data: *const u8,
+    in_len: usize,
+    secret_keys: *const *const c_char,
+    passwords: *const *const c_char,
+    signers_count: usize,
+    mode: GfrSignMode,
+    ascii: bool,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        if name.is_null()
+            || in_data.is_null()
+            || secret_keys.is_null()
+            || passwords.is_null()
+            || out_data.is_null()
+            || out_len.is_null()
+        {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        let name_str = unsafe { CStr::from_ptr(name) }.to_str().unwrap_or("");
+        let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
+
+        // Parse secret keys and passwords safely from C arrays
+        let mut skey_blocks = Vec::with_capacity(signers_count);
+        let mut pwd_blocks = Vec::with_capacity(signers_count);
+
+        unsafe {
+            let sk_slice = slice::from_raw_parts(secret_keys, signers_count);
+            let pwd_slice = slice::from_raw_parts(passwords, signers_count);
+
+            for i in 0..signers_count {
+                if sk_slice[i].is_null() || pwd_slice[i].is_null() {
+                    return Err(GfrStatus::ErrorInvalidInput);
+                }
+
+                let sk_str = CStr::from_ptr(sk_slice[i])
+                    .to_str()
+                    .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+                let pw_str = CStr::from_ptr(pwd_slice[i])
+                    .to_str()
+                    .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+
+                skey_blocks.push(sk_str);
+                pwd_blocks.push(pw_str);
+            }
+        }
+
+        // Perform the multi-signature
+        let mut signed_bytes = crate::crypto::sign_internal(
+            name_str,
+            data_slice,
+            &skey_blocks,
+            &pwd_blocks,
+            mode,
+            ascii,
+        )?;
+
+        // Transfer memory ownership to C
+        signed_bytes.shrink_to_fit();
+        let ptr = signed_bytes.as_mut_ptr();
+        let len = signed_bytes.len();
+        std::mem::forget(signed_bytes);
 
         unsafe {
             *out_data = ptr;
