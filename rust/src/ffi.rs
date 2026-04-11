@@ -235,3 +235,55 @@ pub extern "C" fn gfr_crypto_extract_public_key(
         Err(_) => GfrStatus::ErrorPanic,
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_encrypt_text(
+    plaintext: *const c_char,
+    pub_keys: *const *const c_char,
+    pub_keys_count: usize,
+    out_encrypted: *mut *mut c_char,
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        // Null pointer checks
+        if plaintext.is_null() || pub_keys.is_null() || out_encrypted.is_null() {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        // Convert the plaintext C string to a Rust string slice
+        let pt_str = unsafe { CStr::from_ptr(plaintext) }
+            .to_str()
+            .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+
+        // Convert the C array of strings into a Rust Vec<&str>
+        let mut key_blocks = Vec::with_capacity(pub_keys_count);
+        unsafe {
+            let keys_slice = std::slice::from_raw_parts(pub_keys, pub_keys_count);
+            for &key_ptr in keys_slice {
+                if key_ptr.is_null() {
+                    return Err(GfrStatus::ErrorInvalidInput);
+                }
+                let key_str = CStr::from_ptr(key_ptr)
+                    .to_str()
+                    .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+                key_blocks.push(key_str);
+            }
+        }
+
+        // Perform the encryption
+        let encrypted_text = crate::text::encrypt_text_internal(pt_str, &key_blocks)?;
+
+        // Allocate a new CString for the result and transfer ownership to C++
+        let c_encrypted = CString::new(encrypted_text).map_err(|_| GfrStatus::ErrorInternal)?;
+        unsafe {
+            *out_encrypted = c_encrypted.into_raw();
+        }
+
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
