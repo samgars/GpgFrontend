@@ -2,6 +2,7 @@ use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{GfrKeyConfig, GfrKeyMetadataC, GfrStatus, GfrSubkeyMetadataC};
 use log::LevelFilter;
+use std::slice;
 use std::{
     ffi::{CStr, CString, c_char},
     panic::catch_unwind,
@@ -19,6 +20,15 @@ pub extern "C" fn gfr_rust_hello() {
 pub extern "C" fn gfr_crypto_free_string(ptr: *mut c_char) {
     if !ptr.is_null() {
         unsafe { drop(CString::from_raw(ptr)) }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_buffer(ptr: *mut u8, len: usize) {
+    if !ptr.is_null() && len > 0 {
+        unsafe {
+            let _ = Vec::from_raw_parts(ptr, len, len);
+        }
     }
 }
 
@@ -238,21 +248,27 @@ pub extern "C" fn gfr_crypto_extract_public_key(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_encrypt_text(
-    plaintext: *const c_char,
+    name: *const c_char,
+    in_data: *const u8,
+    in_len: usize,
     pub_keys: *const *const c_char,
     pub_keys_count: usize,
-    out_encrypted: *mut *mut c_char,
+    ascii: bool,
+    out_data: *mut *mut u8,
+    out_len: *mut usize,
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<(), GfrStatus> {
         // Null pointer checks
-        if plaintext.is_null() || pub_keys.is_null() || out_encrypted.is_null() {
+        if name.is_null() || in_data.is_null() || pub_keys.is_null() || out_data.is_null() {
             return Err(GfrStatus::ErrorInvalidInput);
         }
 
-        // Convert the plaintext C string to a Rust string slice
-        let pt_str = unsafe { CStr::from_ptr(plaintext) }
+        let name_str = unsafe { CStr::from_ptr(name) }
             .to_str()
             .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+
+        // Convert the plaintext C string to a Rust string slice
+        let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
 
         // Convert the C array of strings into a Rust Vec<&str>
         let mut key_blocks = Vec::with_capacity(pub_keys_count);
@@ -270,12 +286,18 @@ pub extern "C" fn gfr_crypto_encrypt_text(
         }
 
         // Perform the encryption
-        let encrypted_text = crate::text::encrypt_text_internal(pt_str, &key_blocks)?;
+        let mut encrypted_bytes =
+            crate::crypto::encrypt_text_internal(name_str, data_slice, &key_blocks, ascii)?;
 
-        // Allocate a new CString for the result and transfer ownership to C++
-        let c_encrypted = CString::new(encrypted_text).map_err(|_| GfrStatus::ErrorInternal)?;
+        // 4. Prepare output: Allocate memory for the encrypted data and transfer ownership to C++
+        encrypted_bytes.shrink_to_fit();
+        let ptr = encrypted_bytes.as_mut_ptr();
+        let len = encrypted_bytes.len();
+        std::mem::forget(encrypted_bytes);
+
         unsafe {
-            *out_encrypted = c_encrypted.into_raw();
+            *out_data = ptr;
+            *out_len = len;
         }
 
         Ok(())

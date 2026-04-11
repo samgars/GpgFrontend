@@ -1,3 +1,5 @@
+use std::ascii;
+
 use crate::types::GfrStatus;
 use pgp::{
     composed::{ArmorOptions, Deserializable, Message, MessageBuilder, SignedPublicKey},
@@ -7,13 +9,15 @@ use pgp::{
 use rand::thread_rng;
 
 pub fn encrypt_text_internal(
-    plaintext: &str,
+    name: &str,
+    data: &[u8],
     public_key_blocks: &[&str],
-) -> Result<String, GfrStatus> {
+    ascii_armor: bool,
+) -> Result<Vec<u8>, GfrStatus> {
     let mut rng = thread_rng();
 
     // 1. Initialize the builder with SEIPDv1 and AES256
-    let mut builder = MessageBuilder::from_bytes("", plaintext.as_bytes().to_vec())
+    let mut builder = MessageBuilder::from_bytes(name.as_bytes().to_vec(), data.to_vec())
         .seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
 
     let mut has_recipient = false;
@@ -51,10 +55,17 @@ pub fn encrypt_text_internal(
         return Err(GfrStatus::ErrorInvalidInput);
     }
 
-    // 4. Directly output the armored string from the Builder (No need for intermediate bytes!)
-    let armored_str = builder
-        .to_armored_string(&mut rng, ArmorOptions::default())
-        .map_err(|_| GfrStatus::ErrorArmorFailed)?;
+    // 4. If ASCII armor is requested, output armored string;
+    if ascii_armor {
+        let armored_str = builder
+            .to_armored_string(&mut rng, ArmorOptions::default())
+            .map_err(|_| GfrStatus::ErrorArmorFailed)?;
+        return Ok(armored_str.as_bytes().to_vec());
+    }
 
-    Ok(armored_str)
+    // 5. If not ASCII armor, output raw bytes and convert to String (may not be valid UTF-8)
+    let raw_str = builder
+        .to_vec(&mut rng)
+        .map_err(|_| GfrStatus::ErrorInternal)?;
+    Ok(raw_str)
 }
