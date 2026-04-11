@@ -1,0 +1,21 @@
+# cbindgen.toml
+
+pragma_once = true
+
+header = """
+#ifdef HAS_RUST_SUPPORT
+
+// NOLINTBEGIN
+"""
+
+trailer = """
+// NOLINTEND
+
+#endif
+"""
+
+language = "C++"
+namespace = "GpgFrontend::Rust"
+
+[enum]
+rename_variants = "None"
