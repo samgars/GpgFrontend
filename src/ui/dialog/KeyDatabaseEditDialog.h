@@ -46,7 +46,8 @@ class KeyDatabaseEditDialog : public GeneralDialog {
   void SetDefaultPath(const QString& path);
 
  signals:
-  void SignalKeyDatabaseInfoAccepted(QString name, QString path);
+  void SignalKeyDatabaseInfoAccepted(QString name, QString backend_type,
+                                     QString path);
 
  private:
   QSharedPointer<Ui_KeyDatabaseEditDialog> ui_;  ///<
@@ -55,6 +56,7 @@ class KeyDatabaseEditDialog : public GeneralDialog {
   QString default_path_;
   QString name_;
   QString path_;
+  QString backend_type_;
   QContainer<KeyDatabaseInfo> key_database_infos_;
 
   void slot_button_box_accepted();

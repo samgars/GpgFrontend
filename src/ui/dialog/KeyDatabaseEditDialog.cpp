@@ -69,9 +69,10 @@ KeyDatabaseEditDialog::KeyDatabaseEditDialog(
     }
   });
 
-  connect(ui_->buttonBox, &QDialogButtonBox::accepted, this,
+  connect(ui_->globalButtonBox, &QDialogButtonBox::accepted, this,
           &KeyDatabaseEditDialog::slot_button_box_accepted);
-  connect(ui_->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
+  connect(ui_->globalButtonBox, &QDialogButtonBox::rejected, this,
+          &QDialog::reject);
   setAttribute(Qt::WA_DeleteOnClose);
   setModal(true);
 }
@@ -102,8 +103,14 @@ void KeyDatabaseEditDialog::slot_button_box_accepted() {
                 .relativeFilePath(path_);
   }
 
+  backend_type_ =
+      ui_->keyDBBackendTypeComboBox->currentText().toLower().trimmed();
+  if (backend_type_.isEmpty()) {
+    backend_type_ = "gnupg";
+  }
+
   slot_clear_err_msg();
-  emit SignalKeyDatabaseInfoAccepted(name_, path_);
+  emit SignalKeyDatabaseInfoAccepted(name_, backend_type_, path_);
   this->accept();
 }
 

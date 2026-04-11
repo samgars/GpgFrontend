@@ -36,6 +36,7 @@ struct KeyDatabaseItemSO {
   QString name;
   QString path;
   int channel;
+  QString backend_type;
 
   KeyDatabaseItemSO() = default;
 
@@ -43,6 +44,7 @@ struct KeyDatabaseItemSO {
     name = i.name;
     path = i.origin_path.isEmpty() ? i.path : i.origin_path;
     channel = i.channel;
+    backend_type = i.backend_type;
   }
 
   explicit KeyDatabaseItemSO(const QJsonObject& j) {
@@ -55,6 +57,9 @@ struct KeyDatabaseItemSO {
     if (const auto v = j["channel"]; v.isDouble()) {
       channel = v.toInt();
     }
+    if (const auto v = j["backend_type"]; v.isString()) {
+      backend_type = v.toString();
+    }
   }
 
   [[nodiscard]] auto ToJson() const -> QJsonObject {
@@ -62,6 +67,7 @@ struct KeyDatabaseItemSO {
     j["name"] = name;
     j["path"] = path;
     j["channel"] = channel;
+    j["backend_type"] = backend_type;
     return j;
   }
 };

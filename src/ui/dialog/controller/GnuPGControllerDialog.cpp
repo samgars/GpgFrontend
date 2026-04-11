@@ -69,7 +69,8 @@ GnuPGControllerDialog::GnuPGControllerDialog(QWidget* parent)
   ui_->keyDatabaseTable->clear();
 
   QStringList column_titles;
-  column_titles << tr("Name") << tr("Status") << tr("Path") << tr("Real Path");
+  column_titles << tr("Name") << tr("Backend Type") << tr("Status")
+                << tr("Path") << tr("Real Path");
   ui_->keyDatabaseTable->setColumnCount(static_cast<int>(column_titles.size()));
   ui_->keyDatabaseTable->setHorizontalHeaderLabels(column_titles);
 
@@ -367,7 +368,8 @@ void GnuPGControllerDialog::slot_add_new_key_database() {
   }
 
   connect(dialog, &KeyDatabaseEditDialog::SignalKeyDatabaseInfoAccepted, this,
-          [this](const QString& name, const QString& path) {
+          [this](const QString& name, const QString& backend_type,
+                 const QString& path) -> void {
             auto& key_databases = key_db_infos_;
             for (const auto& key_database : key_databases) {
               if (QFileInfo(key_database.path) == QFileInfo(path)) {
@@ -393,6 +395,7 @@ void GnuPGControllerDialog::slot_add_new_key_database() {
 
             KeyDatabaseInfo key_database;
             key_database.name = name;
+            key_database.backend_type = backend_type;
             key_database.path = key_db_fs_path;
             key_database.origin_path = path;
             key_database.channel = static_cast<int>(key_databases.size());
@@ -423,21 +426,27 @@ void GnuPGControllerDialog::slot_refresh_key_database_table() {
         index, new QTableWidgetItem(QString::number(index + 1)));
     ui_->keyDatabaseTable->setItem(index, 0, i_name);
 
+    auto backend_type_display = key_db.backend_type.isEmpty()
+                                    ? "GNUPG"
+                                    : key_db.backend_type.toUpper().trimmed();
+    auto* i_backend_type = new QTableWidgetItem(backend_type_display);
+    i_backend_type->setTextAlignment(Qt::AlignCenter);
+    ui_->keyDatabaseTable->setItem(index, 1, i_backend_type);
+
     auto is_active =
         std::find_if(active_key_db_infos_.begin(), active_key_db_infos_.end(),
                      [key_db](const KeyDatabaseInfo& i) -> bool {
                        return i.name == key_db.name;
                      }) != active_key_db_infos_.end();
     ui_->keyDatabaseTable->setItem(
-        index, 1,
+        index, 2,
         new QTableWidgetItem(is_active ? tr("Active") : tr("Inactive")));
 
-    ui_->keyDatabaseTable->setItem(index, 2,
+    ui_->keyDatabaseTable->setItem(index, 3,
                                    new QTableWidgetItem(key_db.origin_path));
 
     ui_->keyDatabaseTable->setItem(
-        index, 3, new QTableWidgetItem(is_active ? key_db.path : tr("N/A")));
-
+        index, 4, new QTableWidgetItem(is_active ? key_db.path : tr("N/A")));
     index++;
   }
   ui_->keyDatabaseTable->resizeColumnsToContents();
@@ -610,8 +619,9 @@ void GnuPGControllerDialog::slot_edit_key_database() {
   dialog->SetDefaultPath(selected_key_database.path);
 
   connect(dialog, &KeyDatabaseEditDialog::SignalKeyDatabaseInfoAccepted, this,
-          [this, selected_row, selected_key_database](const QString& name,
-                                                      const QString& path) {
+          [this, selected_row, selected_key_database](
+              const QString& name, const QString& backend_type,
+              const QString& path) {
             auto& all_key_databases = key_db_infos_;
 
             if (selected_key_database.path != path) {
@@ -641,6 +651,7 @@ void GnuPGControllerDialog::slot_edit_key_database() {
 
             KeyDatabaseInfo& key_database = key_db_infos_[selected_row];
             key_database.name = name;
+            key_database.backend_type = backend_type;
             key_database.path = key_db_fs_path;
             key_database.origin_path = path;
 
