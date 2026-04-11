@@ -125,13 +125,16 @@ auto EncryptRpgpImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
     recipient_cstrs.push_back(ba.constData());
   }
 
-  char* out_encrypted = nullptr;
+  std::string name;
+  uint8_t* out_encrypted = nullptr;
+  size_t out_len = 0;
 
   // Call Rust FFI. Ensure in_buffer is a null-terminated C-string if Rust
   // expects it.
-  auto status =
-      Rust::gfr_crypto_encrypt_text(in_buffer.Data(), recipient_cstrs.data(),
-                                    recipient_cstrs.size(), &out_encrypted);
+  auto status = Rust::gfr_crypto_encrypt_text(
+      name.c_str(), reinterpret_cast<const uint8_t*>(in_buffer.Data()),
+      in_buffer.Size(), recipient_cstrs.data(), recipient_cstrs.size(), ascii,
+      &out_encrypted, &out_len);
 
   if (status != Rust::GfrStatus::Success || (out_encrypted == nullptr)) {
     LOG_E() << "Rust FFI encryption failed.";
@@ -140,11 +143,11 @@ auto EncryptRpgpImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
 
   data_object->Swap({
       GpgEncryptResult(),
-      GFBuffer(out_encrypted, std::strlen(out_encrypted)),
+      GFBuffer(reinterpret_cast<const char*>(out_encrypted), out_len),
   });
 
   // Free the memory allocated by Rust if necessary
-  Rust::gfr_crypto_free_string(out_encrypted);
+  Rust::gfr_crypto_free_buffer(out_encrypted, out_len);
   return GPG_ERR_NO_ERROR;
 }
 
@@ -212,11 +215,28 @@ auto DecryptImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
   return err;
 }
 
+auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
+                     const DataObjectPtr& data_object) -> GpgError {
+  GpgData data_in(in_buffer);
+  GpgData data_out;
+
+  auto err =
+      CheckGpgError(gpgme_op_decrypt(ctx_.DefaultContext(), data_in, data_out));
+  data_object->Swap({
+      GpgDecryptResult(gpgme_op_decrypt_result(ctx_.DefaultContext())),
+      data_out.Read2GFBuffer(),
+  });
+  return err;
+}
+
 void GpgBasicOperator::Decrypt(const GFBuffer& in_buffer,
                                const GpgOperationCallback& cb) {
   RunGpgOperaAsync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return DecryptRpgpImpl(ctx_, in_buffer, data_object);
+        }
         return DecryptImpl(ctx_, in_buffer, data_object);
       },
       cb, "gpgme_op_decrypt", "2.2.0");
@@ -226,7 +246,10 @@ auto GpgBasicOperator::DecryptSync(const GFBuffer& in_buffer)
     -> std::tuple<GpgError, DataObjectPtr> {
   return RunGpgOperaSync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return DecryptRpgpImpl(ctx_, in_buffer, data_object);
+        }
         return DecryptImpl(ctx_, in_buffer, data_object);
       },
       "gpgme_op_decrypt", "2.2.0");
