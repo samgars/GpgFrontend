@@ -155,8 +155,8 @@ auto GFKeyDatabase::SaveKey(const GFKeyMetadata& meta,
     (fpr, key_id, user_id, algo, created_at, has_secret, can_sign, can_encrypt, can_auth, can_certify)
     VALUES (:fpr, :key_id, :user_id, :algo, :created_at, :has_secret, :can_sign, :can_encrypt, :can_auth, :can_certify)
   )");
-  query.bindValue(":fpr", meta.fpr);
-  query.bindValue(":key_id", meta.key_id);
+  query.bindValue(":fpr", meta.fpr.toUpper());
+  query.bindValue(":key_id", meta.key_id.toUpper());
   query.bindValue(":user_id", meta.user_id);
   query.bindValue(":algo", meta.algo);
   query.bindValue(":created_at", meta.created_at);
@@ -186,9 +186,9 @@ auto GFKeyDatabase::SaveKey(const GFKeyMetadata& meta,
       continue;
     }
 
-    query.bindValue(":fpr", sub.fpr);
-    query.bindValue(":parent_fpr", meta.fpr);
-    query.bindValue(":key_id", sub.key_id);
+    query.bindValue(":fpr", sub.fpr.toUpper());
+    query.bindValue(":parent_fpr", meta.fpr.toUpper());
+    query.bindValue(":key_id", sub.key_id.toUpper());
     query.bindValue(":algo", sub.algo);
     query.bindValue(":created_at", sub.created_at);
     query.bindValue(":has_secret", sub.has_secret ? 1 : 0);
@@ -208,7 +208,7 @@ auto GFKeyDatabase::SaveKey(const GFKeyMetadata& meta,
     INSERT OR REPLACE INTO key_blocks (fpr, public_key, secret_key)
     VALUES (:fpr, :public_key, :secret_key)
   )");
-  query.bindValue(":fpr", meta.fpr);
+  query.bindValue(":fpr", meta.fpr.toUpper());
   query.bindValue(":public_key", blocks.public_key);
   query.bindValue(":secret_key",
                   blocks.secret_key.isEmpty() ? QString{} : blocks.secret_key);
@@ -276,8 +276,8 @@ auto GFKeyDatabase::create_table() -> bool {
   // 1. Primary key metadata table with new capability fields
   const QString create_metadata_table = R"(
     CREATE TABLE IF NOT EXISTS key_metadata (
-      fpr TEXT PRIMARY KEY,
-      key_id TEXT NOT NULL,
+      fpr TEXT PRIMARY KEY COLLATE NOCASE,
+      key_id TEXT NOT NULL COLLATE NOCASE,
       user_id TEXT,
       algo INTEGER,
       created_at INTEGER,
@@ -292,9 +292,9 @@ auto GFKeyDatabase::create_table() -> bool {
   // 2. Subkey metadata table (Linked to primary key via parent_fpr)
   const QString create_subkey_table = R"(
     CREATE TABLE IF NOT EXISTS subkey_metadata (
-      fpr TEXT PRIMARY KEY,
-      parent_fpr TEXT NOT NULL,
-      key_id TEXT NOT NULL,
+      fpr TEXT PRIMARY KEY COLLATE NOCASE,
+      parent_fpr TEXT NOT NULL COLLATE NOCASE,
+      key_id TEXT NOT NULL COLLATE NOCASE,
       algo INTEGER,
       created_at INTEGER,
       has_secret INTEGER DEFAULT 0,
@@ -309,7 +309,7 @@ auto GFKeyDatabase::create_table() -> bool {
   // 3. Key blocks table
   const QString create_blocks_table = R"(
     CREATE TABLE IF NOT EXISTS key_blocks (
-      fpr TEXT PRIMARY KEY,
+      fpr TEXT PRIMARY KEY COLLATE NOCASE,
       public_key TEXT NOT NULL,
       secret_key TEXT,
       FOREIGN KEY(fpr) REFERENCES key_metadata(fpr) ON DELETE CASCADE
