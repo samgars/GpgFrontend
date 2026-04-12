@@ -2,8 +2,8 @@ use crate::crypto::get_signature_issuers_internal;
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
-    GfrKeyConfig, GfrKeyMetadataC, GfrSignMode, GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC,
-    GfrVerifyResultC,
+    GfrKeyConfig, GfrKeyMetadataC, GfrSignMode, GfrSignResultC, GfrSignatureResultC, GfrStatus,
+    GfrSubkeyMetadataC, GfrVerifyResultC,
 };
 use log::LevelFilter;
 use std::slice;
@@ -413,16 +413,14 @@ pub extern "C" fn gfr_crypto_sign_data(
     signers_count: usize,
     mode: GfrSignMode,
     ascii: bool,
-    out_data: *mut *mut u8,
-    out_len: *mut usize,
+    out_result: *mut GfrSignResultC, // Replaced out_data/out_len with struct ptr
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<(), GfrStatus> {
         if name.is_null()
             || in_data.is_null()
             || secret_keys.is_null()
             || passwords.is_null()
-            || out_data.is_null()
-            || out_len.is_null()
+            || out_result.is_null()
         {
             return Err(GfrStatus::ErrorInvalidInput);
         }
@@ -430,7 +428,6 @@ pub extern "C" fn gfr_crypto_sign_data(
         let name_str = unsafe { CStr::from_ptr(name) }.to_str().unwrap_or("");
         let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
 
-        // Parse secret keys and passwords safely from C arrays
         let mut skey_blocks = Vec::with_capacity(signers_count);
         let mut pwd_blocks = Vec::with_capacity(signers_count);
 
@@ -442,7 +439,6 @@ pub extern "C" fn gfr_crypto_sign_data(
                 if sk_slice[i].is_null() || pwd_slice[i].is_null() {
                     return Err(GfrStatus::ErrorInvalidInput);
                 }
-
                 let sk_str = CStr::from_ptr(sk_slice[i])
                     .to_str()
                     .map_err(|_| GfrStatus::ErrorInvalidInput)?;
@@ -455,8 +451,8 @@ pub extern "C" fn gfr_crypto_sign_data(
             }
         }
 
-        // Perform the multi-signature
-        let mut signed_bytes = crate::crypto::sign_internal(
+        // Perform the multi-signature and get the structured report
+        let mut internal_result = crate::crypto::sign_internal(
             name_str,
             data_slice,
             &skey_blocks,
@@ -465,15 +461,36 @@ pub extern "C" fn gfr_crypto_sign_data(
             ascii,
         )?;
 
-        // Transfer memory ownership to C
-        signed_bytes.shrink_to_fit();
-        let ptr = signed_bytes.as_mut_ptr();
-        let len = signed_bytes.len();
-        std::mem::forget(signed_bytes);
+        // 1. Process the output payload (data)
+        internal_result.data.shrink_to_fit();
+        let data_ptr = internal_result.data.as_mut_ptr();
+        let data_len = internal_result.data.len();
+        std::mem::forget(internal_result.data); // Leak payload to C
 
+        // 2. Process the signatures array
+        let mut c_signatures = Vec::with_capacity(internal_result.signatures.len());
+        for sig in internal_result.signatures {
+            c_signatures.push(GfrSignatureResultC {
+                sig_type: mode,
+                issuer_fpr: CString::new(sig.fpr).unwrap_or_default().into_raw(),
+                status: sig.status,
+                created_at: sig.created_at,
+                pub_algo: CString::new(sig.pub_algo).unwrap_or_default().into_raw(),
+                hash_algo: CString::new(sig.hash_algo).unwrap_or_default().into_raw(),
+            });
+        }
+
+        let mut boxed_sigs = c_signatures.into_boxed_slice();
+        let sigs_ptr = boxed_sigs.as_mut_ptr();
+        let sigs_count = boxed_sigs.len();
+        std::mem::forget(boxed_sigs); // Leak array to C
+
+        // 3. Populate the output struct safely
         unsafe {
-            *out_data = ptr;
-            *out_len = len;
+            (*out_result).data = data_ptr;
+            (*out_result).data_len = data_len;
+            (*out_result).signatures = sigs_ptr;
+            (*out_result).signature_count = sigs_count;
         }
 
         Ok(())
@@ -483,6 +500,50 @@ pub extern "C" fn gfr_crypto_sign_data(
         Ok(Ok(_)) => GfrStatus::Success,
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+/// Free the signature result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_sign_result(result: *mut GfrSignResultC) {
+    if result.is_null() {
+        return;
+    }
+
+    unsafe {
+        // 1. Free the generated data buffer
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+        }
+
+        // 2. Free the signatures array and its internal strings
+        if !(*result).signatures.is_null() && (*result).signature_count > 0 {
+            let sigs_slice =
+                std::slice::from_raw_parts_mut((*result).signatures, (*result).signature_count);
+
+            for sig in sigs_slice.iter_mut() {
+                if !sig.issuer_fpr.is_null() {
+                    drop(CString::from_raw(sig.issuer_fpr));
+                }
+                if !sig.pub_algo.is_null() {
+                    drop(CString::from_raw(sig.pub_algo));
+                }
+                if !sig.hash_algo.is_null() {
+                    drop(CString::from_raw(sig.hash_algo));
+                }
+            }
+
+            // Free the array itself
+            let array_ptr =
+                std::ptr::slice_from_raw_parts_mut((*result).signatures, (*result).signature_count);
+            drop(Box::from_raw(array_ptr));
+        }
+
+        // Zero out
+        (*result).data = std::ptr::null_mut();
+        (*result).data_len = 0;
+        (*result).signatures = std::ptr::null_mut();
+        (*result).signature_count = 0;
     }
 }
 
@@ -543,6 +604,7 @@ pub extern "C" fn gfr_crypto_verify_data(
             let c_hash_algo = CString::new(sig.hash_algo).unwrap_or_default().into_raw();
 
             c_signatures.push(GfrSignatureResultC {
+                sig_type: sig.sig_type,
                 issuer_fpr: c_fpr,
                 status: sig.status,
                 created_at: sig.created_at,

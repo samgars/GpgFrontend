@@ -96,11 +96,21 @@ pub enum GfrSignatureStatus {
 /// Verification result for a single signature found in the message
 #[repr(C)]
 pub struct GfrSignatureResultC {
+    pub sig_type: GfrSignMode, // The type of signature (Inline, ClearText, Detached)
     pub issuer_fpr: *mut c_char, // The Fingerprint of the signer (if available, otherwise null)
     pub status: GfrSignatureStatus, // The verification status for this specific signature
-    pub created_at: u32,         // Signature creation timestamp (Unix epoch)
-    pub pub_algo: *mut c_char,   // The algorithm used for this signature (if available)
-    pub hash_algo: *mut c_char,  // The hash algorithm used for this signature (if available)
+    pub created_at: u32,       // Signature creation timestamp (Unix epoch)
+    pub pub_algo: *mut c_char, // The algorithm used for this signature (if available)
+    pub hash_algo: *mut c_char, // The hash algorithm used for this signature (if available)
+}
+
+/// The comprehensive result of a signing operation
+#[repr(C)]
+pub struct GfrSignResultC {
+    pub data: *mut u8,
+    pub data_len: usize,
+    pub signatures: *mut GfrSignatureResultC,
+    pub signature_count: usize,
 }
 
 /// The comprehensive result of a verification operation

@@ -1,4 +1,7 @@
-use std::io::{Cursor, Read};
+use std::{
+    io::{Cursor, Read},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::types::{GfrSignMode, GfrSignatureStatus, GfrStatus};
 use log::debug;
@@ -160,6 +163,11 @@ pub fn get_message_recipients_internal(data: &[u8]) -> Result<String, GfrStatus>
     Ok(key_ids.join(","))
 }
 
+pub struct SignResultInternal {
+    pub data: Vec<u8>,
+    pub signatures: Vec<SignatureResultInternal>,
+}
+
 pub fn sign_internal(
     name: &str,
     data: &[u8],
@@ -167,15 +175,13 @@ pub fn sign_internal(
     passwords: &[&str],
     mode: GfrSignMode,
     ascii_armor: bool,
-) -> Result<Vec<u8>, GfrStatus> {
+) -> Result<SignResultInternal, GfrStatus> {
     if secret_key_blocks.len() != passwords.len() || secret_key_blocks.is_empty() {
         return Err(GfrStatus::ErrorInvalidInput);
     }
 
-    let sign_mode = mode;
-
     // Cleartext strictly requires valid UTF-8 string data
-    if sign_mode == GfrSignMode::ClearText && std::str::from_utf8(data).is_err() {
+    if mode == GfrSignMode::ClearText && std::str::from_utf8(data).is_err() {
         return Err(GfrStatus::ErrorInvalidInput);
     }
 
@@ -188,9 +194,26 @@ pub fn sign_internal(
     }
 
     let mut rng = thread_rng();
+    let mut created_signatures = Vec::new();
+    let current_time = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+
+    // Helper closure to record the signature info once created
+    let mut record_sig = |fpr: String, algo: PublicKeyAlgorithm| {
+        created_signatures.push(SignatureResultInternal {
+            fpr,
+            status: GfrSignatureStatus::Valid, // Always Valid for newly created signatures
+            created_at: current_time,
+            pub_algo: algo_to_string_simple(algo),
+            hash_algo: "SHA512".to_string(), // Hardcoded SHA512 in builder.sign()
+            sig_type: mode,
+        });
+    };
 
     // 2. Route the operation based on the selected mode
-    match sign_mode {
+    match mode {
         // ---------------------------------------------------------
         // MODE 0: INLINE SIGNATURE
         // ---------------------------------------------------------
@@ -206,6 +229,7 @@ pub fn sign_internal(
                     if subkey.key.algorithm().can_sign() {
                         let pwd_fn = Password::from(passwords[i].as_bytes());
                         builder.sign(&subkey.key, pwd_fn, HashAlgorithm::Sha512);
+                        record_sig(subkey.key.fingerprint().to_string(), subkey.key.algorithm());
                         added_for_this_key = true;
                         at_least_one_signer = true;
                         break;
@@ -215,6 +239,10 @@ pub fn sign_internal(
                 if !added_for_this_key && skey.primary_key.algorithm().can_sign() {
                     let fallback_pwd = Password::from(passwords[i].as_bytes());
                     builder.sign(&skey.primary_key, fallback_pwd, HashAlgorithm::Sha512);
+                    record_sig(
+                        skey.primary_key.fingerprint().to_string(),
+                        skey.primary_key.algorithm(),
+                    );
                     at_least_one_signer = true;
                 }
             }
@@ -223,19 +251,26 @@ pub fn sign_internal(
                 return Err(GfrStatus::ErrorInvalidInput);
             }
 
-            if ascii_armor {
-                let armored_str = builder
+            let final_data = if ascii_armor {
+                builder
                     .to_armored_string(&mut rng, ArmorOptions::default())
-                    .map_err(|_| GfrStatus::ErrorArmorFailed)?;
-                return Ok(armored_str.into_bytes());
-            }
+                    .map_err(|_| GfrStatus::ErrorArmorFailed)?
+                    .into_bytes()
+            } else {
+                builder
+                    .to_vec(&mut rng)
+                    .map_err(|_| GfrStatus::ErrorInternal)?
+            };
 
-            let raw_bytes = builder
-                .to_vec(&mut rng)
-                .map_err(|_| GfrStatus::ErrorInternal)?;
-            Ok(raw_bytes)
+            Ok(SignResultInternal {
+                data: final_data,
+                signatures: created_signatures,
+            })
         }
 
+        // ---------------------------------------------------------
+        // MODE 1: CLEARTEXT SIGNATURE
+        // ---------------------------------------------------------
         GfrSignMode::ClearText => {
             let text = std::str::from_utf8(data).unwrap().to_string();
 
@@ -246,28 +281,42 @@ pub fn sign_internal(
                 for subkey in &skey.secret_subkeys {
                     if subkey.key.algorithm().can_sign() {
                         let pwd = Password::from(passwords[i].as_bytes());
-                        // Fix: Pass `&mut rng` as the first argument and `&text` as the second
                         if let Ok(msg) =
                             CleartextSignedMessage::sign(&mut rng, &text, &subkey.key, &pwd)
                         {
-                            return Ok(msg
+                            record_sig(
+                                subkey.key.fingerprint().to_string(),
+                                subkey.key.algorithm(),
+                            );
+                            let out = msg
                                 .to_armored_string(ArmorOptions::default())
                                 .map_err(|_| GfrStatus::ErrorArmorFailed)?
-                                .into_bytes());
+                                .into_bytes();
+                            return Ok(SignResultInternal {
+                                data: out,
+                                signatures: created_signatures,
+                            });
                         }
                     }
                 }
 
                 if skey.primary_key.algorithm().can_sign() {
                     let pwd = Password::from(passwords[i].as_bytes());
-                    // Fix: Pass `&mut rng` as the first argument and `&text` as the second
                     if let Ok(msg) =
                         CleartextSignedMessage::sign(&mut rng, &text, &skey.primary_key, &pwd)
                     {
-                        return Ok(msg
+                        record_sig(
+                            skey.primary_key.fingerprint().to_string(),
+                            skey.primary_key.algorithm(),
+                        );
+                        let out = msg
                             .to_armored_string(ArmorOptions::default())
                             .map_err(|_| GfrStatus::ErrorArmorFailed)?
-                            .into_bytes());
+                            .into_bytes();
+                        return Ok(SignResultInternal {
+                            data: out,
+                            signatures: created_signatures,
+                        });
                     }
                 }
             }
@@ -293,15 +342,20 @@ pub fn sign_internal(
                             HashAlgorithm::Sha512,
                             data,
                         ) {
-                            if ascii_armor {
-                                let armored = sig
-                                    .to_armored_bytes(None.into())
-                                    .map_err(|_| GfrStatus::ErrorArmorFailed)?;
-                                return Ok(armored);
+                            record_sig(
+                                subkey.key.fingerprint().to_string(),
+                                subkey.key.algorithm(),
+                            );
+                            let out = if ascii_armor {
+                                sig.to_armored_bytes(None.into())
+                                    .map_err(|_| GfrStatus::ErrorArmorFailed)?
                             } else {
-                                let raw = sig.to_bytes().map_err(|_| GfrStatus::ErrorInternal)?;
-                                return Ok(raw);
-                            }
+                                sig.to_bytes().map_err(|_| GfrStatus::ErrorInternal)?
+                            };
+                            return Ok(SignResultInternal {
+                                data: out,
+                                signatures: created_signatures,
+                            });
                         }
                     }
                 }
@@ -315,15 +369,20 @@ pub fn sign_internal(
                         HashAlgorithm::Sha512,
                         data,
                     ) {
-                        if ascii_armor {
-                            let armored = sig
-                                .to_armored_bytes(None.into())
-                                .map_err(|_| GfrStatus::ErrorArmorFailed)?;
-                            return Ok(armored);
+                        record_sig(
+                            skey.primary_key.fingerprint().to_string(),
+                            skey.primary_key.algorithm(),
+                        );
+                        let out = if ascii_armor {
+                            sig.to_armored_bytes(None.into())
+                                .map_err(|_| GfrStatus::ErrorArmorFailed)?
                         } else {
-                            let raw = sig.to_bytes().map_err(|_| GfrStatus::ErrorInternal)?;
-                            return Ok(raw);
-                        }
+                            sig.to_bytes().map_err(|_| GfrStatus::ErrorInternal)?
+                        };
+                        return Ok(SignResultInternal {
+                            data: out,
+                            signatures: created_signatures,
+                        });
                     }
                 }
             }
@@ -345,6 +404,7 @@ pub struct SignatureResultInternal {
     pub created_at: u32,
     pub pub_algo: String,
     pub hash_algo: String,
+    pub sig_type: GfrSignMode,
 }
 
 fn cert_contains_issuer(cert: &SignedPublicKey, issuer_hex: &str) -> bool {
@@ -374,7 +434,7 @@ pub fn algo_to_string_simple(algo: PublicKeyAlgorithm) -> String {
     format!("{:?}", algo)
 }
 
-fn sniff_signatures(data: &[u8]) -> Vec<SignatureResultInternal> {
+fn sniff_signatures(data: &[u8], mode: GfrSignMode) -> Vec<SignatureResultInternal> {
     let mut results = Vec::new();
     let mut dearmored = Vec::new();
     let _ = Dearmor::new(Cursor::new(data)).read_to_end(&mut dearmored);
@@ -407,6 +467,7 @@ fn sniff_signatures(data: &[u8]) -> Vec<SignatureResultInternal> {
                         created_at: sig.created().map(|d| d.as_secs() as u32).unwrap_or(0),
                         pub_algo: pub_algo_id,
                         hash_algo: hash_algo_id,
+                        sig_type: mode,
                     });
                 }
             }
@@ -450,7 +511,7 @@ pub fn verify_internal(
 
             // try to sniff signatures from the message packets first, to build
             // an initial list of issuers and their statuses
-            let mut signatures = sniff_signatures(data);
+            let mut signatures = sniff_signatures(data, mode);
             let mut is_verified = false;
 
             for cert in &certs {
@@ -480,6 +541,7 @@ pub fn verify_internal(
                             created_at: 0,
                             pub_algo: "None".to_string(),
                             hash_algo: "None".to_string(),
+                            sig_type: mode,
                         });
                     }
                 } else {
@@ -538,6 +600,7 @@ pub fn verify_internal(
                             created_at: sig.created().map(|d| d.as_secs() as u32).unwrap_or(0),
                             pub_algo: pub_algo_id,
                             hash_algo: hash_algo_id,
+                            sig_type: mode,
                         });
                     }
                 }
@@ -587,7 +650,7 @@ pub fn verify_internal(
 
             // try to sniff signatures from the signature packets first, to build
             // an initial list of issuers and their statuses
-            let mut signatures = sniff_signatures(sig_data);
+            let mut signatures = sniff_signatures(sig_data, mode);
             let mut is_verified = false;
 
             for cert in &certs {
