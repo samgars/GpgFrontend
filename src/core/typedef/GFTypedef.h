@@ -142,4 +142,16 @@ struct GFVerifyResult {
   bool is_verified;
 };
 
+struct GFEncryptAndSignResult {
+  GFBuffer data;
+  GFSignResult sign_result;
+  GFEncryptResult encrypt_result;
+};
+
+struct GFDecryptAndVerifyResult {
+  GFBuffer data;
+  GFDecryptResult decrypt_result;
+  GFVerifyResult verify_result;
+};
+
 }  // namespace GpgFrontend

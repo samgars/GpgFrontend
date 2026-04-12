@@ -31,6 +31,7 @@
 #ifdef HAS_RUST_SUPPORT
 
 #include "core/GpgCoreRust.h"
+#include "core/typedef/GFTypedef.h"
 
 namespace GpgFrontend {
 
@@ -50,6 +51,49 @@ auto GF_CORE_EXPORT KeyAlgoId2GfrKeyAlgo(const QString& algo_id)
  * @return QString
  */
 auto GF_CORE_EXPORT GfrKeyAlgo2KeyAlgoName(Rust::GfrKeyAlgo algo) -> QString;
+
+/**
+ * @brief
+ *
+ * @param r
+ * @return GFEncryptResult
+ */
+auto GF_CORE_EXPORT GfrEncryptResultC2GFEncryptResult(
+    const Rust::GfrEncryptResultC& r) -> GFEncryptResult;
+
+/**
+ * @brief
+ *
+ * @param r
+ * @return GFDecryptResult
+ */
+auto GF_CORE_EXPORT GfrDecryptResultC2GFDecryptResult(
+    const Rust::GfrDecryptResultC& r) -> GFDecryptResult;
+/**
+ * @brief
+ * @param r
+ * @return GFSignResult
+ */
+auto GF_CORE_EXPORT GfrSignResultC2GFSignResult(const Rust::GfrSignResultC& r)
+    -> GFSignResult;
+
+/**
+ * @brief
+ *
+ * @param r
+ * @return GFVerifyResult
+ */
+auto GF_CORE_EXPORT GfrVerifyResultC2GFVerifyResult(
+    const Rust::GfrVerifyResultC& r) -> GFVerifyResult;
+
+/**
+ * @brief
+ *
+ * @param r
+ * @return GFEncryptAndSignResult
+ */
+auto GF_CORE_EXPORT GfrEncryptAndSignResultC2GFEncryptAndSignResult(
+    const Rust::GfrEncryptAndSignResultC& r) -> GFEncryptAndSignResult;
 
 }  // namespace GpgFrontend
 

@@ -38,6 +38,7 @@
 #include "core/model/GpgVerifyResult.h"
 #include "core/utils/AsyncUtils.h"
 #include "core/utils/GpgUtils.h"
+#include "core/utils/RustUtils.h"
 
 namespace GpgFrontend {
 
@@ -140,27 +141,7 @@ auto EncryptRpgpImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
     return GPG_ERR_GENERAL;
   }
 
-  GFEncryptResult result;
-  for (size_t i = 0; i < encrypt_result.invalid_recipient_count; ++i) {
-    const auto& inv_rec = encrypt_result.invalid_recipients[i];
-
-    GpgError reason;
-    if (inv_rec.reason == Rust::GfrStatus::ErrorNoKey) {
-      reason = GPG_ERR_NO_KEY;
-    } else if (inv_rec.reason == Rust::GfrStatus::ErrorInvalidData) {
-      reason = GPG_ERR_INV_DATA;
-    } else {
-      reason = GPG_ERR_GENERAL;
-    }
-
-    result.invalid_recipients.push_back({
-        QString::fromUtf8(inv_rec.fpr),
-        reason,
-    });
-  }
-  result.data = GFBuffer(reinterpret_cast<const char*>(encrypt_result.data),
-                         encrypt_result.data_len);
-
+  GFEncryptResult result = GfrEncryptResultC2GFEncryptResult(encrypt_result);
   Rust::gfr_crypto_free_encrypt_result(&encrypt_result);
 
   data_object->Swap({GpgEncryptResult(result), result.data});
@@ -328,27 +309,7 @@ auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
     return GPG_ERR_GENERAL;
   }
 
-  GFDecryptResult result;
-  result.data = GFBuffer(reinterpret_cast<const char*>(decrypt_result.data),
-                         decrypt_result.data_len);
-  result.filename = QString::fromUtf8(decrypt_result.filename);
-  for (size_t i = 0; i < decrypt_result.recipient_count; ++i) {
-    const auto& rec = decrypt_result.recipients[i];
-    GpgError status;
-    if (rec.status == Rust::GfrRecipientStatus::Success) {
-      status = GPG_ERR_NO_ERROR;
-    } else if (rec.status == Rust::GfrRecipientStatus::NoKey) {
-      status = GPG_ERR_NO_KEY;
-    } else {
-      status = GPG_ERR_GENERAL;
-    }
-    result.recipients.push_back({
-        QString::fromUtf8(rec.key_id).toUpper(),
-        QString::fromUtf8(rec.pub_algo),
-        status,
-    });
-  }
-
+  GFDecryptResult result = GfrDecryptResultC2GFDecryptResult(decrypt_result);
   Rust::gfr_crypto_free_decrypt_result(&decrypt_result);
 
   data_object->Swap({
@@ -464,43 +425,7 @@ auto VerifyRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
     return GPG_ERR_GENERAL;
   }
 
-  GFVerifyResult result;
-  result.is_verified = verify_result.is_verified;
-  for (size_t i = 0; i < verify_result.signature_count; ++i) {
-    const auto& sig = verify_result.signatures[i];
-
-    auto sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
-    switch (sig.status) {
-      case Rust::GfrSignatureStatus::Valid:
-        sig_status = GFSignatureStatus::kVALID;
-        break;
-      case Rust::GfrSignatureStatus::BadSignature:
-        sig_status = GFSignatureStatus::kBAD_SIGNATURE;
-        break;
-      case Rust::GfrSignatureStatus::NoKey:
-        sig_status = GFSignatureStatus::kNO_KEY;
-        break;
-      case Rust::GfrSignatureStatus::UnknownError:
-      default:
-        sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
-        break;
-    }
-
-    LOG_D() << "Signature from issuer "
-            << QString::fromUtf8(sig.issuer_fpr).toUpper()
-            << " has status: " << static_cast<int>(sig_status)
-            << ", pub_algo: " << sig.pub_algo
-            << ", hash_algo: " << sig.hash_algo;
-
-    result.signatures.push_back({
-        QString::fromUtf8(sig.issuer_fpr).toUpper(),
-        sig_status,
-        sig.created_at,
-        sig.pub_algo,
-        sig.hash_algo,
-    });
-  }
-
+  GFVerifyResult result = GfrVerifyResultC2GFVerifyResult(verify_result);
   Rust::gfr_crypto_free_verify_result(&verify_result);
 
   LOG_D() << "Verification result: "
@@ -624,46 +549,9 @@ auto SignRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& signers,
     return GPG_ERR_GENERAL;
   }
 
-  GFSignResult result;
-  result.signatures.reserve(sign_result.signature_count);
-  for (size_t i = 0; i < sign_result.signature_count; ++i) {
-    const auto& sig = sign_result.signatures[i];
-    GFSignatureStatus sig_status;
-
-    switch (sig.status) {
-      case Rust::GfrSignatureStatus::Valid:
-        sig_status = GFSignatureStatus::kVALID;
-        break;
-      case Rust::GfrSignatureStatus::BadSignature:
-        sig_status = GFSignatureStatus::kBAD_SIGNATURE;
-        break;
-      case Rust::GfrSignatureStatus::NoKey:
-        sig_status = GFSignatureStatus::kNO_KEY;
-        break;
-      default:
-        sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
-        break;
-    }
-
-    LOG_D() << "Created signature for issuer "
-            << QString::fromUtf8(sig.issuer_fpr).toUpper()
-            << " with status: " << static_cast<int>(sig_status)
-            << ", pub_algo: " << sig.pub_algo
-            << ", hash_algo: " << sig.hash_algo;
-
-    result.signatures.push_back({
-        QString::fromUtf8(sig.issuer_fpr).toUpper(),
-        sig_status,
-        sig.created_at,
-        sig.pub_algo,
-        sig.hash_algo,
-    });
-  }
-
-  result.data = GFBuffer(reinterpret_cast<const char*>(sign_result.data),
-                         sign_result.data_len);
-
+  GFSignResult result = GfrSignResultC2GFSignResult(sign_result);
   Rust::gfr_crypto_free_sign_result(&sign_result);
+
   data_object->Swap({
       GpgSignResult(result),
       result.data,
@@ -771,6 +659,102 @@ auto EncryptSignImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
   return err;
 }
 
+auto EncryptSignRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& keys,
+                         const GpgAbstractKeyPtrList& signers,
+                         const GFBuffer& in_buffer, bool ascii,
+                         const DataObjectPtr& data_object) -> GpgError {
+  auto key_db = ctx.KeyDatabase();
+  if (!key_db) {
+    LOG_E() << "Failed to get key database from context";
+    return GPG_ERR_GENERAL;
+  }
+
+  if (signers.isEmpty() || keys.isEmpty()) return GPG_ERR_INV_ARG;
+
+  // 1. Vector to hold the actual memory of the UTF-8 strings
+  QContainer<QByteArray> key_blocks_utf8;
+
+  // 2. Vector to hold the pointers to pass to Rust FFI
+  std::vector<const char*> recipient_cstrs;
+
+  for (const auto& key : keys) {
+    auto key_block = key_db->GetKeyBlocks(key->Fingerprint());
+    if (!key_block || key_block->public_key.isEmpty()) {
+      LOG_W() << "No valid public key block found for key with fpr: "
+              << key->Fingerprint();
+      continue;
+    }
+
+    // Keep the QByteArray alive by pushing it to the vector
+    key_blocks_utf8.push_back(key_block->public_key.toUtf8());
+  }
+
+  if (key_blocks_utf8.empty()) {
+    LOG_E() << "No valid recipients found for encryption.";
+    return GPG_ERR_GENERAL;  // Or appropriate error code
+  }
+
+  // Pre-allocate space for performance
+  recipient_cstrs.reserve(key_blocks_utf8.size());
+
+  // Safely extract pointers from the valid memory blocks
+  for (const auto& ba : key_blocks_utf8) {
+    recipient_cstrs.push_back(ba.constData());
+  }
+
+  std::vector<QByteArray> skey_utf8_list;
+  std::vector<QByteArray> pwd_utf8_list;
+  std::vector<const char*> c_skeys;
+  std::vector<const char*> c_pwds;
+
+  // Fetch key blocks and safely store memory
+  for (const auto& signer : signers) {
+    auto blocks = key_db->GetKeyBlocks(signer->Fingerprint());
+    if (!blocks || blocks->secret_key.isEmpty()) {
+      LOG_E() << "Failed to find secret key block for FPR: "
+              << signer->Fingerprint();
+      return GPG_ERR_NO_SECKEY;
+    }
+
+    skey_utf8_list.push_back(blocks->secret_key.toUtf8());
+    // Placeholder password, replace with actual if needed
+    pwd_utf8_list.emplace_back("123456");
+  }
+
+  // Extract C-string pointers
+  for (size_t i = 0; i < skey_utf8_list.size(); ++i) {
+    c_skeys.push_back(skey_utf8_list[i].constData());
+    c_pwds.push_back(pwd_utf8_list[i].constData());
+  }
+
+  QString name;
+  Rust::GfrEncryptAndSignResultC encrypt_sign_result;
+
+  auto err = Rust::gfr_crypto_encrypt_and_sign_data(
+      name.toUtf8().constData(),
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      recipient_cstrs.data(), recipient_cstrs.size(), c_skeys.data(),
+      c_pwds.data(), c_skeys.size(), ascii, &encrypt_sign_result);
+
+  if (err != Rust::GfrStatus::Success) {
+    LOG_E() << "Rust FFI encrypt_and_sign failed with status: "
+            << static_cast<int>(err);
+    return GPG_ERR_GENERAL;
+  }
+
+  GFEncryptAndSignResult result =
+      GfrEncryptAndSignResultC2GFEncryptAndSignResult(encrypt_sign_result);
+  Rust::gfr_crypto_free_encrypt_and_sign_result(&encrypt_sign_result);
+
+  data_object->Swap({
+      GpgEncryptResult(result.encrypt_result),
+      GpgSignResult(result.sign_result),
+      result.data,
+  });
+
+  return GPG_ERR_NO_ERROR;
+}
+
 void GpgBasicOperator::EncryptSign(const GpgAbstractKeyPtrList& keys,
                                    const GpgAbstractKeyPtrList& signers,
                                    const GFBuffer& in_buffer, bool ascii,
@@ -778,6 +762,10 @@ void GpgBasicOperator::EncryptSign(const GpgAbstractKeyPtrList& keys,
   RunGpgOperaAsync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return EncryptSignRpgpImpl(ctx_, keys, signers, in_buffer, ascii,
+                                     data_object);
+        }
         return EncryptSignImpl(ctx_, keys, signers, in_buffer, ascii,
                                data_object);
       },
@@ -791,6 +779,10 @@ auto GpgBasicOperator::EncryptSignSync(const GpgAbstractKeyPtrList& keys,
   return RunGpgOperaSync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return EncryptSignRpgpImpl(ctx_, keys, signers, in_buffer, ascii,
+                                     data_object);
+        }
         return EncryptSignImpl(ctx_, keys, signers, in_buffer, ascii,
                                data_object);
       },

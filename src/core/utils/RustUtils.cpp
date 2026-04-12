@@ -68,4 +68,150 @@ auto GF_CORE_EXPORT GfrKeyAlgo2KeyAlgoName(Rust::GfrKeyAlgo algo) -> QString {
   }
 }
 
+namespace {
+
+auto ParseEncryptResultMeta(const Rust::GfrEncryptMetadataC& m)
+    -> GFEncryptResult {
+  GFEncryptResult result;
+
+  for (size_t i = 0; i < m.invalid_recipient_count; ++i) {
+    const auto& inv_rec = m.invalid_recipients[i];
+
+    GpgError reason;
+    if (inv_rec.reason == Rust::GfrStatus::ErrorNoKey) {
+      reason = GPG_ERR_NO_KEY;
+    } else if (inv_rec.reason == Rust::GfrStatus::ErrorInvalidData) {
+      reason = GPG_ERR_INV_DATA;
+    } else {
+      reason = GPG_ERR_GENERAL;
+    }
+
+    result.invalid_recipients.push_back({
+        QString::fromUtf8(inv_rec.fpr),
+        reason,
+    });
+  }
+
+  return result;
+}
+
+auto ParseSignResultMeta(const Rust::GfrSignMetadataC& m) -> GFSignResult {
+  GFSignResult result;
+
+  for (size_t i = 0; i < m.signature_count; ++i) {
+    const auto& sig = m.signatures[i];
+
+    GFSignatureStatus sig_status;
+    switch (sig.status) {
+      case Rust::GfrSignatureStatus::Valid:
+        sig_status = GFSignatureStatus::kVALID;
+        break;
+      case Rust::GfrSignatureStatus::BadSignature:
+        sig_status = GFSignatureStatus::kBAD_SIGNATURE;
+        break;
+      case Rust::GfrSignatureStatus::NoKey:
+        sig_status = GFSignatureStatus::kNO_KEY;
+        break;
+      default:
+        sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
+        break;
+    }
+
+    result.signatures.push_back({
+        QString::fromUtf8(sig.issuer_fpr).toUpper(),
+        sig_status,
+        sig.created_at,
+        sig.pub_algo,
+        sig.hash_algo,
+    });
+  }
+
+  return result;
+}
+
+}  // namespace
+
+auto GfrEncryptResultC2GFEncryptResult(const Rust::GfrEncryptResultC& r)
+    -> GFEncryptResult {
+  GFEncryptResult result = ParseEncryptResultMeta(r.meta);
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  return result;
+}
+
+auto GfrDecryptResultC2GFDecryptResult(const Rust::GfrDecryptResultC& r)
+    -> GFDecryptResult {
+  GFDecryptResult result;
+
+  result.filename = QString::fromUtf8(r.filename);
+  for (size_t i = 0; i < r.recipient_count; ++i) {
+    const auto& rec = r.recipients[i];
+    GpgError status;
+    if (rec.status == Rust::GfrRecipientStatus::Success) {
+      status = GPG_ERR_NO_ERROR;
+    } else if (rec.status == Rust::GfrRecipientStatus::NoKey) {
+      status = GPG_ERR_NO_KEY;
+    } else {
+      status = GPG_ERR_GENERAL;
+    }
+    result.recipients.push_back({
+        QString::fromUtf8(rec.key_id).toUpper(),
+        QString::fromUtf8(rec.pub_algo),
+        status,
+    });
+  }
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  return result;
+}
+
+auto GfrSignResultC2GFSignResult(const Rust::GfrSignResultC& r)
+    -> GFSignResult {
+  GFSignResult result = ParseSignResultMeta(r.meta);
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  return result;
+}
+
+auto GfrVerifyResultC2GFVerifyResult(const Rust::GfrVerifyResultC& r)
+    -> GFVerifyResult {
+  GFVerifyResult result;
+  result.is_verified = r.is_verified;
+  for (size_t i = 0; i < r.signature_count; ++i) {
+    const auto& sig = r.signatures[i];
+
+    auto sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
+    switch (sig.status) {
+      case Rust::GfrSignatureStatus::Valid:
+        sig_status = GFSignatureStatus::kVALID;
+        break;
+      case Rust::GfrSignatureStatus::BadSignature:
+        sig_status = GFSignatureStatus::kBAD_SIGNATURE;
+        break;
+      case Rust::GfrSignatureStatus::NoKey:
+        sig_status = GFSignatureStatus::kNO_KEY;
+        break;
+      case Rust::GfrSignatureStatus::UnknownError:
+      default:
+        sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
+        break;
+    }
+
+    result.signatures.push_back({
+        QString::fromUtf8(sig.issuer_fpr).toUpper(),
+        sig_status,
+        sig.created_at,
+        sig.pub_algo,
+        sig.hash_algo,
+    });
+  }
+  return result;
+}
+
+auto GfrEncryptAndSignResultC2GFEncryptAndSignResult(
+    const Rust::GfrEncryptAndSignResultC& r) -> GFEncryptAndSignResult {
+  GFEncryptAndSignResult result;
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  result.sign_result = ParseSignResultMeta(r.sign_meta);
+  result.encrypt_result = ParseEncryptResultMeta(r.encrypt_meta);
+  return result;
+}
+
 }  // namespace GpgFrontend
