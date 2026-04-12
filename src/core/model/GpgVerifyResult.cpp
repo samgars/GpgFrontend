@@ -39,18 +39,31 @@ GpgVerifyResult::GpgVerifyResult(gpgme_verify_result_t r)
             }
           })) {}
 
+GpgVerifyResult::GpgVerifyResult(const GFVerifyResult& r)
+    : gf_result_ref_(QSharedPointer<GFVerifyResult>::create(r)) {}
+
 GpgVerifyResult::GpgVerifyResult() = default;
 
 GpgVerifyResult::~GpgVerifyResult() = default;
 
-auto GpgVerifyResult::IsGood() const -> bool { return result_ref_ != nullptr; }
+auto GpgVerifyResult::IsGood() const -> bool {
+  return result_ref_ != nullptr || gf_result_ref_ != nullptr;
+}
 
 auto GpgVerifyResult::GetRaw() const -> gpgme_verify_result_t {
+  assert(gf_result_ref_ == nullptr);
   return result_ref_.get();
 }
 
 auto GpgVerifyResult::GetSignature() const -> QContainer<GpgSignature> {
   QContainer<GpgSignature> signatures;
+
+  if (gf_result_ref_ != nullptr) {
+    for (const auto& sig : gf_result_ref_->signatures) {
+      signatures.push_back(GpgSignature{sig});
+    }
+    return signatures;
+  }
 
   auto* signature = result_ref_->signatures;
   while (signature != nullptr) {

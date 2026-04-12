@@ -42,11 +42,14 @@ class GF_CORE_EXPORT GpgVerifyResult {
 
   explicit GpgVerifyResult(gpgme_verify_result_t);
 
+  explicit GpgVerifyResult(const GFVerifyResult&);
+
   GpgVerifyResult();
 
   virtual ~GpgVerifyResult();
 
  private:
   QSharedPointer<struct _gpgme_op_verify_result> result_ref_ = nullptr;  ///<
+  QSharedPointer<GFVerifyResult> gf_result_ref_ = nullptr;               ///<
 };
 }  // namespace GpgFrontend

@@ -34,6 +34,9 @@ GpgSignature::GpgSignature() = default;
 
 GpgSignature::GpgSignature(gpgme_signature_t sig) : signature_ref_(sig) {}
 
+GpgSignature::GpgSignature(const GFSignature &gf_sig)
+    : gf_signature_ref_(QSharedPointer<GFSignature>::create(gf_sig)) {}
+
 GpgSignature::~GpgSignature() = default;
 
 GpgSignature::GpgSignature(const GpgSignature &) = default;
@@ -46,6 +49,9 @@ auto GpgSignature::operator=(const GpgSignature &) -> GpgSignature & = default;
  * @return gpgme_validity_t
  */
 auto GpgSignature::GetValidity() const -> gpgme_validity_t {
+  if (gf_signature_ref_ != nullptr) {
+    return GPGME_VALIDITY_FULL;
+  }
   return signature_ref_->validity;
 }
 
@@ -55,6 +61,18 @@ auto GpgSignature::GetValidity() const -> gpgme_validity_t {
  * @return gpgme_error_t
  */
 auto GpgSignature::GetStatus() const -> gpgme_error_t {
+  if (gf_signature_ref_ != nullptr) {
+    switch (gf_signature_ref_->status) {
+      case GFSignatureStatus::kVALID:
+        return GPG_ERR_NO_ERROR;
+      case GFSignatureStatus::kBAD_SIGNATURE:
+        return GPG_ERR_BAD_SIGNATURE;
+      case GFSignatureStatus::kNO_KEY:
+        return GPG_ERR_NO_PUBKEY;
+      default:
+        return GPG_ERR_GENERAL;
+    }
+  }
   return signature_ref_->status;
 }
 
@@ -64,6 +82,18 @@ auto GpgSignature::GetStatus() const -> gpgme_error_t {
  * @return gpgme_error_t
  */
 auto GpgSignature::GetSummary() const -> gpgme_error_t {
+  if (gf_signature_ref_ != nullptr) {
+    gpgme_error_t summary = 0;
+    switch (gf_signature_ref_->status) {
+      case GFSignatureStatus::kVALID:
+        summary |= GPGME_SIGSUM_VALID | GPGME_SIGSUM_GREEN;
+        break;
+      default:
+        summary |= GPGME_SIGSUM_RED;
+        break;
+    }
+    return summary;
+  }
   return signature_ref_->summary;
 }
 
@@ -73,6 +103,9 @@ auto GpgSignature::GetSummary() const -> gpgme_error_t {
  * @return QString
  */
 auto GpgSignature::GetPubkeyAlgo() const -> QString {
+  if (gf_signature_ref_ != nullptr) {
+    return gf_signature_ref_->pub_algo;
+  }
   return gpgme_pubkey_algo_name(signature_ref_->pubkey_algo);
 }
 
@@ -82,6 +115,9 @@ auto GpgSignature::GetPubkeyAlgo() const -> QString {
  * @return QString
  */
 auto GpgSignature::GetHashAlgo() const -> QString {
+  if (gf_signature_ref_ != nullptr) {
+    return gf_signature_ref_->hash_algo;
+  }
   return gpgme_hash_algo_name(signature_ref_->hash_algo);
 }
 
@@ -91,6 +127,9 @@ auto GpgSignature::GetHashAlgo() const -> QString {
  * @return QDateTime
  */
 auto GpgSignature::GetCreateTime() const -> QDateTime {
+  if (gf_signature_ref_ != nullptr) {
+    return QDateTime::fromSecsSinceEpoch(gf_signature_ref_->created_at);
+  }
   return QDateTime::fromSecsSinceEpoch(signature_ref_->timestamp);
 }
 
@@ -100,6 +139,9 @@ auto GpgSignature::GetCreateTime() const -> QDateTime {
  * @return QDateTime
  */
 auto GpgSignature::GetExpireTime() const -> QDateTime {
+  if (gf_signature_ref_ != nullptr) {
+    return QDateTime::fromSecsSinceEpoch(0);
+  }
   return QDateTime::fromSecsSinceEpoch(signature_ref_->exp_timestamp);
 }
 
@@ -109,6 +151,9 @@ auto GpgSignature::GetExpireTime() const -> QDateTime {
  * @return QString
  */
 auto GpgSignature::GetFingerprint() const -> QString {
+  if (gf_signature_ref_ != nullptr) {
+    return gf_signature_ref_->issuer_fpr;
+  }
   return signature_ref_->fpr != nullptr ? signature_ref_->fpr : "";
 }
 

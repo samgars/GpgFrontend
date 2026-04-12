@@ -91,4 +91,25 @@ struct GFKeyBlocks {
   QString secret_key;
 };
 
+enum class GFSignatureStatus : uint8_t {
+  kVALID = 0,
+  kBAD_SIGNATURE = 1,
+  kNO_KEY = 2,
+  kUNKNOWN_ERROR = 3,
+};
+
+struct GFSignature {
+  QString issuer_fpr;
+  GFSignatureStatus status;
+  uint32_t created_at;
+  QString pub_algo;
+  QString hash_algo;
+};
+
+struct GFVerifyResult {
+  QByteArray data;
+  QContainer<GFSignature> signatures;
+  bool is_verified;
+};
+
 }  // namespace GpgFrontend

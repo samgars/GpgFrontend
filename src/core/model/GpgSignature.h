@@ -113,6 +113,8 @@ class GF_CORE_EXPORT GpgSignature {
    */
   explicit GpgSignature(gpgme_signature_t sig);
 
+  explicit GpgSignature(const GFSignature &gf_sig);
+
   /**
    * @brief Construct a new Gpg Signature object
    *
@@ -127,6 +129,7 @@ class GF_CORE_EXPORT GpgSignature {
   auto operator=(const GpgSignature &) -> GpgSignature &;
 
  private:
-  gpgme_signature_t signature_ref_ = nullptr;  ///<
+  gpgme_signature_t signature_ref_ = nullptr;               ///<
+  QSharedPointer<GFSignature> gf_signature_ref_ = nullptr;  ///<
 };
 }  // namespace GpgFrontend

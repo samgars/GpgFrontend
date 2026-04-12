@@ -95,7 +95,7 @@ auto EncryptRpgpImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
   }
 
   // 1. Vector to hold the actual memory of the UTF-8 strings
-  std::vector<QByteArray> key_blocks_utf8;
+  QContainer<QByteArray> key_blocks_utf8;
 
   // 2. Vector to hold the pointers to pass to Rust FFI
   std::vector<const char*> recipient_cstrs;
@@ -372,12 +372,119 @@ auto VerifyImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
   return err;
 }
 
+auto VerifyRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
+                    const GFBuffer& sig_buffer,
+                    const DataObjectPtr& data_object) -> GpgError {
+  char* out_issuers = nullptr;
+  auto err = Rust::gfr_crypto_get_signature_issuers(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      &out_issuers);
+
+  if (err != Rust::GfrStatus::Success || out_issuers == nullptr) {
+    LOG_E() << "Rust FFI get_signature_issuers failed.";
+    return GPG_ERR_GENERAL;
+  }
+
+  auto issuers_str = QString::fromUtf8(out_issuers);
+  Rust::gfr_crypto_free_string(out_issuers);
+
+  LOG_D() << "Signature issuers extracted from RPGP message: " << issuers_str;
+
+  auto issuer_ids = issuers_str.split(",", Qt::SkipEmptyParts);
+  auto key_db = ctx_.KeyDatabase();
+  if (!key_db) {
+    LOG_E() << "Failed to get key database from context";
+    return GPG_ERR_GENERAL;
+  }
+
+  QContainer<QByteArray> verified_keys_utf8;
+  for (const auto& issuer_id : issuer_ids) {
+    auto key = key_db->GetKeyBlocks(issuer_id);
+    if (key && !key->public_key.isEmpty()) {
+      verified_keys_utf8.push_back(key->public_key.toUtf8());
+    }
+  }
+
+  QContainer<const char*> c_verified_keys;
+  for (const auto& key : verified_keys_utf8) {
+    c_verified_keys.push_back(key.constData());
+  }
+
+  Rust::GfrVerifyResultC verify_result;
+
+  auto status = Rust::gfr_crypto_verify_data(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      reinterpret_cast<const uint8_t*>(sig_buffer.Data()), sig_buffer.Size(),
+      c_verified_keys.data(), c_verified_keys.size(),
+      sig_buffer.Empty() ? Rust::GfrSignMode::ClearText
+                         : Rust::GfrSignMode::Detached,
+      &verify_result);
+
+  if (status != Rust::GfrStatus::Success) {
+    LOG_E() << "Rust FFI verification failed with status: "
+            << static_cast<int>(status);
+    return GPG_ERR_GENERAL;
+  }
+
+  GFVerifyResult result;
+  result.is_verified = verify_result.is_verified;
+  for (size_t i = 0; i < verify_result.signature_count; ++i) {
+    const auto& sig = verify_result.signatures[i];
+
+    auto sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
+    switch (sig.status) {
+      case Rust::GfrSignatureStatus::Valid:
+        sig_status = GFSignatureStatus::kVALID;
+        break;
+      case Rust::GfrSignatureStatus::BadSignature:
+        sig_status = GFSignatureStatus::kBAD_SIGNATURE;
+        break;
+      case Rust::GfrSignatureStatus::NoKey:
+        sig_status = GFSignatureStatus::kNO_KEY;
+        break;
+      case Rust::GfrSignatureStatus::UnknownError:
+      default:
+        sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
+        break;
+    }
+
+    LOG_D() << "Signature from issuer "
+            << QString::fromUtf8(sig.issuer_fpr).toUpper()
+            << " has status: " << static_cast<int>(sig_status)
+            << ", pub_algo: " << sig.pub_algo
+            << ", hash_algo: " << sig.hash_algo;
+
+    result.signatures.push_back({
+        QString::fromUtf8(sig.issuer_fpr).toUpper(),
+        sig_status,
+        sig.created_at,
+        sig.pub_algo,
+        sig.hash_algo,
+    });
+  }
+
+  Rust::gfr_crypto_free_verify_result(&verify_result);
+
+  LOG_D() << "Verification result: "
+          << (result.is_verified ? "VALID" : "INVALID")
+          << ", Signatures found: " << result.signatures.size();
+
+  data_object->Swap({
+      GpgVerifyResult(result),
+      GFBuffer(),
+  });
+  return GPG_ERR_NO_ERROR;
+}
+
 void GpgBasicOperator::Verify(const GFBuffer& in_buffer,
                               const GFBuffer& sig_buffer,
                               const GpgOperationCallback& cb) {
   RunGpgOperaAsync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return VerifyRpgpImpl(ctx_, in_buffer, sig_buffer, data_object);
+        }
         return VerifyImpl(ctx_, in_buffer, sig_buffer, data_object);
       },
       cb, "gpgme_op_verify", "2.2.0");
@@ -388,7 +495,10 @@ auto GpgBasicOperator::VerifySync(const GFBuffer& in_buffer,
     -> std::tuple<GpgError, DataObjectPtr> {
   return RunGpgOperaSync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return VerifyRpgpImpl(ctx_, in_buffer, sig_buffer, data_object);
+        }
         return VerifyImpl(ctx_, in_buffer, sig_buffer, data_object);
       },
       "gpgme_op_verify", "2.2.0");

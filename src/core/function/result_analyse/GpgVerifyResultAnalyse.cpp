@@ -37,7 +37,7 @@ GpgFrontend::GpgVerifyResultAnalyse::GpgVerifyResultAnalyse(
     : GpgResultAnalyse(channel), error_(error), result_(result) {}
 
 void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
-  auto *result = this->result_.GetRaw();
+  auto signatures = this->result_.GetSignature();
 
   stream_ << "# " << tr("Verify Operation") << " ";
 
@@ -49,15 +49,20 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
     setStatus(-1);
   }
 
-  if (result != nullptr && result->signatures != nullptr) {
+  if (!signatures.empty()) {
     stream_ << Qt::endl;
-    auto *sign = result->signatures;
+    auto sign = signatures.front();
 
-    stream_ << "-> " << tr("Signed On") << "(" << tr("UTC") << ")" << ": "
-            << GetUTCDateByTimestamp(sign->timestamp) << Qt::endl;
+    stream_ << "-> " << tr("Signed On") << "(" << tr("UTC") << ")"
+            << ": "
+            << GetUTCDateByTimestamp(sign.GetCreateTime().toSecsSinceEpoch())
+            << Qt::endl;
 
-    stream_ << "-> " << tr("Signed On") << "(" << tr("Localized") << ")" << ": "
-            << GetLocalizedDateByTimestamp(sign->timestamp) << Qt::endl;
+    stream_ << "-> " << tr("Signed On") << "(" << tr("Localized") << ")"
+            << ": "
+            << GetLocalizedDateByTimestamp(
+                   sign.GetCreateTime().toSecsSinceEpoch())
+            << Qt::endl;
 
     stream_ << Qt::endl << "## " << tr("Signatures List") << ":" << Qt::endl;
     stream_ << Qt::endl;
@@ -65,10 +70,10 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
     bool can_continue = true;
 
     int count = 1;
-    while ((sign != nullptr) && can_continue) {
+    for (const auto &sign : signatures) {
       stream_ << "### " << tr("Signature [%1]:").arg(count++) << Qt::endl;
       stream_ << "- " << tr("Status") << ": ";
-      switch (gpg_err_code(sign->status)) {
+      switch (gpg_err_code(sign.GetStatus())) {
         case GPG_ERR_BAD_SIGNATURE:
           stream_ << tr("Invalid Signature") << Qt::endl;
           print_signer(stream_, GpgSignature(sign));
@@ -79,9 +84,9 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
           break;
         case GPG_ERR_NO_ERROR: {
           // Determine overall status
-          bool is_fully_valid = (sign->summary & GPGME_SIGSUM_VALID) != 0;
-          bool is_green = (sign->summary & GPGME_SIGSUM_GREEN) != 0;
-          bool is_red = (sign->summary & GPGME_SIGSUM_RED) != 0;
+          bool is_fully_valid = (sign.GetSummary() & GPGME_SIGSUM_VALID) != 0;
+          bool is_green = (sign.GetSummary() & GPGME_SIGSUM_GREEN) != 0;
+          bool is_red = (sign.GetSummary() & GPGME_SIGSUM_RED) != 0;
 
           if (is_fully_valid && is_green) {
             stream_ << tr("Fully Valid") << Qt::endl;
@@ -93,19 +98,19 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
 
           // List specific warnings
           QStringList warnings;
-          if ((sign->summary & GPGME_SIGSUM_SIG_EXPIRED) != 0) {
+          if ((sign.GetSummary() & GPGME_SIGSUM_SIG_EXPIRED) != 0) {
             warnings.append(tr("Signature has expired"));
           }
-          if ((sign->summary & GPGME_SIGSUM_KEY_MISSING) != 0) {
+          if ((sign.GetSummary() & GPGME_SIGSUM_KEY_MISSING) != 0) {
             warnings.append(tr("Signing key is missing"));
           }
-          if ((sign->summary & GPGME_SIGSUM_KEY_REVOKED) != 0) {
+          if ((sign.GetSummary() & GPGME_SIGSUM_KEY_REVOKED) != 0) {
             warnings.append(tr("Signing key has been revoked"));
           }
-          if ((sign->summary & GPGME_SIGSUM_KEY_EXPIRED) != 0) {
+          if ((sign.GetSummary() & GPGME_SIGSUM_KEY_EXPIRED) != 0) {
             warnings.append(tr("Signing key has expired"));
           }
-          if ((sign->summary & GPGME_SIGSUM_CRL_MISSING) != 0) {
+          if ((sign.GetSummary() & GPGME_SIGSUM_CRL_MISSING) != 0) {
             warnings.append(tr("Certificate revocation list is missing"));
           }
 
@@ -122,11 +127,11 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
                     << Qt::endl;
           }
 
-          if ((sign->status & GPGME_SIGSUM_KEY_MISSING) == 0U) {
+          if ((sign.GetStatus() & GPGME_SIGSUM_KEY_MISSING) == 0U) {
             if (!print_signer(stream_, GpgSignature(sign))) setStatus(0);
           } else {
-            stream_ << "  - " << tr("Key ID") << ": 0x" << sign->fpr << " ("
-                    << tr("not present in keyring") << ")" << Qt::endl;
+            stream_ << "  - " << tr("Key ID") << ": 0x" << sign.GetFingerprint()
+                    << " (" << tr("not present in keyring") << ")" << Qt::endl;
           }
 
           setStatus(1);
@@ -182,14 +187,19 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
           can_continue = false;
           break;
         default:
-          auto fpr = QString(sign->fpr);
+          auto fpr = QString(sign.GetFingerprint());
           stream_ << tr("Unknown Error") << Qt::endl;
           stream_ << "  - " << tr("Key Fingerprint") << ": "
                   << GpgFrontend::BeautifyFingerprint(fpr) << Qt::endl;
           setStatus(-1);
       }
       stream_ << Qt::endl;
-      sign = sign->next;
+
+      if (!can_continue) {
+        stream_ << tr("Verification process stopped due to errors.")
+                << Qt::endl;
+        break;
+      }
     }
     stream_ << Qt::endl;
   } else {
@@ -204,17 +214,19 @@ void GpgFrontend::GpgVerifyResultAnalyse::doAnalyse() {
 
 auto GpgFrontend::GpgVerifyResultAnalyse::print_signer_without_key(
     QTextStream &stream, GpgSignature sign) -> bool {
-  stream_ << "- " << tr("Signed By") << "(" << tr("Fingerprint") << ")" << ": "
+  stream_ << "- " << tr("Signed By") << "(" << tr("Fingerprint") << ")"
+          << ": "
           << (sign.GetFingerprint().isEmpty() ? tr("<unknown>")
                                               : sign.GetFingerprint())
           << Qt::endl;
   stream << "- " << tr("Public Key Algo") << ": " << sign.GetPubkeyAlgo()
          << Qt::endl;
   stream << "- " << tr("Hash Algo") << ": " << sign.GetHashAlgo() << Qt::endl;
-  stream << "- " << tr("Sign Date") << "(" << tr("UTC") << ")" << ": "
-         << QLocale().toString(sign.GetCreateTime().toUTC()) << Qt::endl;
-  stream << "- " << tr("Sign Date") << "(" << tr("Localized") << ")" << ": "
-         << QLocale().toString(sign.GetCreateTime()) << Qt::endl;
+  stream << "- " << tr("Sign Date") << "(" << tr("UTC") << ")"
+         << ": " << QLocale().toString(sign.GetCreateTime().toUTC())
+         << Qt::endl;
+  stream << "- " << tr("Sign Date") << "(" << tr("Localized") << ")"
+         << ": " << QLocale().toString(sign.GetCreateTime()) << Qt::endl;
   return true;
 }
 
@@ -222,6 +234,9 @@ auto GpgFrontend::GpgVerifyResultAnalyse::print_signer(QTextStream &stream,
                                                        GpgSignature sign)
     -> bool {
   auto fingerprint = sign.GetFingerprint();
+
+  LOG_D() << "Looking up key for fingerprint: " << fingerprint;
+
   auto key =
       GpgAbstractKeyGetter::GetInstance(GetChannel()).GetKey(fingerprint);
   if (key != nullptr) {
@@ -247,10 +262,11 @@ auto GpgFrontend::GpgVerifyResultAnalyse::print_signer(QTextStream &stream,
   stream << "- " << tr("Public Key Algo") << ": " << sign.GetPubkeyAlgo()
          << Qt::endl;
   stream << "- " << tr("Hash Algo") << ": " << sign.GetHashAlgo() << Qt::endl;
-  stream << "- " << tr("Sign Date") << "(" << tr("UTC") << ")" << ": "
-         << QLocale().toString(sign.GetCreateTime().toUTC()) << Qt::endl;
-  stream << "- " << tr("Sign Date") << "(" << tr("Localized") << ")" << ": "
-         << QLocale().toString(sign.GetCreateTime()) << Qt::endl;
+  stream << "- " << tr("Sign Date") << "(" << tr("UTC") << ")"
+         << ": " << QLocale().toString(sign.GetCreateTime().toUTC())
+         << Qt::endl;
+  stream << "- " << tr("Sign Date") << "(" << tr("Localized") << ")"
+         << ": " << QLocale().toString(sign.GetCreateTime()) << Qt::endl;
   stream << Qt::endl;
 
   return key != nullptr;
