@@ -342,7 +342,7 @@ endif()
 
 if(GPGFRONTEND_QT5_BUILD)
   # Support Qt version: 5.15.x
-  find_package(Qt5 5.15 COMPONENTS Core Widgets PrintSupport Network LinguistTools Xml REQUIRED)
+  find_package(Qt5 5.15 COMPONENTS Core Widgets PrintSupport Network LinguistTools Xml Sql REQUIRED)
 else()
   # Support Qt version: 6.x
   find_package(Qt6 6 COMPONENTS Core Widgets PrintSupport Network LinguistTools Xml Sql REQUIRED)
