@@ -1,0 +1,120 @@
+/**
+ * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
+ *
+ * This file is part of GpgFrontend.
+ *
+ * GpgFrontend is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * GpgFrontend is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with GpgFrontend. If not, see <https://www.gnu.org/licenses/>.
+ *
+ * The initial version of the source code is inherited from
+ * the gpg4usb project, which is under GPL-3.0-or-later.
+ *
+ * All the source code of GpgFrontend was modified and released by
+ * Saturneric <eric@bktus.com> starting on May 12, 2021.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ */
+
+#include "RustEngineCallback.h"
+
+#include "core/function/CoreSignalStation.h"
+#include "core/function/GFKeyDatabase.h"
+#include "core/function/gpg/GpgAbstractKeyGetter.h"
+#include "core/model/GpgPassphraseContext.h"
+
+namespace GpgFrontend {
+
+auto FetchPublicKeyCallback(const char* fpr, void* user_data) -> char* {
+  if ((fpr == nullptr) || (user_data == nullptr)) return nullptr;
+
+  auto* key_db = static_cast<GFKeyDatabase*>(user_data);
+  QString fingerprint = QString::fromUtf8(fpr);
+
+  LOG_D() << "Rust FFI requested public key for issuer: " << fingerprint;
+
+  auto key_block = key_db->GetKeyBlocks(fingerprint);
+  if (key_block && !key_block->public_key.isEmpty()) {
+    QByteArray utf8 = key_block->public_key.toUtf8();
+    // Allocate memory using strdup (or standard malloc) for Rust to safely
+    // consume
+    char* c_str = reinterpret_cast<char*>(
+        SMAMalloc(utf8.size() + 1));  // +1 for null terminator
+    std::memcpy(c_str, utf8.constData(), utf8.size());
+    c_str[utf8.size()] = '\0';
+    return c_str;
+  }
+  return nullptr;
+}
+
+auto FetchPasswordCallback(int channel, const char* fpr, const char* info,
+                           void* user_data) -> char* {
+  QString qs_fpr = QString::fromUtf8(fpr).toUpper();
+  GpgAbstractKeyPtr key = nullptr;
+  if (qs_fpr.length() > 0) {
+    key = GpgAbstractKeyGetter::GetInstance(channel).GetKey(qs_fpr);
+  }
+  auto qs_info = info != nullptr ? QString::fromUtf8(info) : QString();
+
+  LOG_D() << "Rust FFI requested password for key fpr: " << qs_fpr
+          << ", info: " << qs_info << ", channel: " << channel;
+
+  QString result_pwd;
+
+  auto c = QSharedPointer<GpgPassphraseContext>::create(channel, key, qs_info,
+                                                        false, false);
+
+  QEventLoop loop;
+  QObject::connect(
+      CoreSignalStation::GetInstance(),
+      &CoreSignalStation::SignalUserInputPassphraseReady, &loop,
+      [&result_pwd, &c,
+       &loop](const QSharedPointer<GpgPassphraseContext>& ctx) -> void {
+        if (ctx->GetKey() == nullptr ||
+            ctx->GetKey()->ID() == c->GetKey()->ID()) {
+          result_pwd = ctx->GetPassphrase();
+        }
+        loop.quit();
+      });
+
+  emit CoreSignalStation::GetInstance()->SignalNeedUserInputPassphrase(c);
+  loop.exec();
+
+  if (result_pwd.isEmpty()) {
+    return nullptr;
+  }
+
+  // Convert QString to UTF-8 byte array
+  QByteArray utf8_pwd = result_pwd.toUtf8();
+
+  // Allocate raw C-string memory for Rust to consume
+  char* c_pwd = reinterpret_cast<char*>(
+      SMAMalloc(utf8_pwd.size() + 1));  // +1 for null terminator
+  std::memcpy(c_pwd, utf8_pwd.constData(), utf8_pwd.size());
+  c_pwd[utf8_pwd.size()] = '\0';
+
+  // Attempt to clear the Qt buffers (Best effort since QString handles its own
+  // memory)
+  result_pwd.fill('X');
+  utf8_pwd.fill('X');
+
+  return c_pwd;
+}
+
+void FreeCallback(void* ptr, void*) {
+  if (ptr != nullptr) {
+    SMAFree(ptr);
+  }
+}
+
+}  // namespace GpgFrontend
