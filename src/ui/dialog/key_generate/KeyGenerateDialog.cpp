@@ -193,6 +193,7 @@ KeyGenerateDialog::KeyGenerateDialog(int channel, QWidget* parent)
     ui_->keyDBIndexComboBox->insertItem(
         key_db.channel, QString("%1: %2").arg(key_db.channel).arg(key_db.name));
   }
+  ui_->keyDBIndexComboBox->setCurrentIndex(channel);
 
   for (const auto& option : k_expire_options_list_) {
     ui_->easyValidityPeriodComboBox->addItem(option.display);
@@ -726,7 +727,7 @@ void KeyGenerateDialog::set_signal_slot_config() {
 
   connect(ui_->keyDBIndexComboBox,
           qOverload<int>(&QComboBox::currentIndexChanged), this,
-          [=](int index) { channel_ = index; });
+          [=](int index) -> void { channel_ = index; });
 
   connect(ui_->easyCombinationComboBox, &QComboBox::currentTextChanged, this,
           &KeyGenerateDialog::slot_easy_combination_changed);
