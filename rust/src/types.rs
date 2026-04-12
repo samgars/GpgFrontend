@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,6 +25,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
+
 use core::fmt;
 use std::{error::Error, ffi::c_void, os::raw::c_char};
 
@@ -81,6 +82,14 @@ pub struct GfrKeyConfig {
     pub can_sign: bool,
     pub can_encrypt: bool,
     pub can_auth: bool,
+    pub has_passphrase: bool,
+}
+
+#[repr(C)]
+pub struct GfrKeyGenerateResult {
+    pub secret_key: *mut c_char,
+    pub public_key: *mut c_char,
+    pub fingerprint: *mut c_char,
 }
 
 #[repr(C)]
@@ -248,5 +257,6 @@ pub type GfrPasswordFetchCb = extern "C" fn(
     channel: i32,
     fpr: *const c_char,
     info: *const c_char,
+    out_pwd: *mut *mut u8,
     user_data: *mut c_void,
-) -> *mut c_char;
+) -> i32;

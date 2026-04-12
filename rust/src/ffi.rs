@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,9 +25,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
+
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
-use crate::types::{GfrKeyConfig, GfrKeyMetadataC, GfrStatus, GfrSubkeyMetadataC};
+use crate::types::{
+    GfrFreeCb, GfrKeyConfig, GfrKeyGenerateResult, GfrKeyMetadataC, GfrPasswordFetchCb, GfrStatus,
+    GfrSubkeyMetadataC,
+};
 use log::LevelFilter;
 use std::slice;
 use std::{
@@ -52,23 +56,17 @@ pub extern "C" fn gfr_init_logger() {
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gfr_crypto_create_key_custom(
+pub extern "C" fn gfr_crypto_generate_key(
     user_id: *const c_char,
-    pwd: *const c_char,
     key_config: GfrKeyConfig,
     s_key_configs: *const GfrKeyConfig,
     s_key_count: usize,
-    o_s_key: *mut *mut c_char,
-    o_p_key: *mut *mut c_char,
-    o_fpr: *mut *mut c_char,
+    fetch_pwd_cb: GfrPasswordFetchCb,
+    free_cb: GfrFreeCb,
+    o_result: *mut GfrKeyGenerateResult,
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<GeneratedKeys, GfrStatus> {
-        if user_id.is_null()
-            || pwd.is_null()
-            || o_s_key.is_null()
-            || o_p_key.is_null()
-            || o_fpr.is_null()
-        {
+        if user_id.is_null() || o_result.is_null() {
             return Err(GfrStatus::ErrorInvalidInput);
         }
 
@@ -76,10 +74,15 @@ pub extern "C" fn gfr_crypto_create_key_custom(
             .to_str()
             .map_err(|_| GfrStatus::ErrorInvalidInput)?;
 
-        let pwd_bytes = unsafe { CStr::from_ptr(pwd) }.to_bytes();
         let configs = unsafe { std::slice::from_raw_parts(s_key_configs, s_key_count) };
 
-        let keys = create_key_internal(user_id_str, pwd_bytes, key_config, configs)?;
+        let keys = create_key_internal(
+            user_id_str,
+            key_config,
+            configs,
+            Some(fetch_pwd_cb),
+            Some(free_cb),
+        )?;
 
         Ok(keys)
     });
@@ -98,9 +101,11 @@ pub extern "C" fn gfr_crypto_create_key_custom(
                 };
 
                 unsafe {
-                    *o_s_key = c_s.into_raw();
-                    *o_p_key = c_p.into_raw();
-                    *o_fpr = c_f.into_raw();
+                    *o_result = GfrKeyGenerateResult {
+                        secret_key: c_s.into_raw(),
+                        public_key: c_p.into_raw(),
+                        fingerprint: c_f.into_raw(),
+                    };
                 }
                 GfrStatus::Success
             }

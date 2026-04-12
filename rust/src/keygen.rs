@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,7 +25,11 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
-use crate::types::{GfrKeyAlgo, GfrKeyConfig, GfrStatus};
+
+use crate::{
+    types::{GfrFreeCb, GfrKeyAlgo, GfrKeyConfig, GfrPasswordFetchCb, GfrStatus},
+    utils::fetch_password_internal,
+};
 use log::{debug, error};
 use pgp::{
     composed::{
@@ -85,7 +89,7 @@ pub fn resolve_key_type(algo: &GfrKeyAlgo, can_encrypt: bool) -> Result<KeyType,
 
 pub fn keygen_dynamic(
     uid: &str,
-    key_config: GfrKeyConfig,
+    key_config: &GfrKeyConfig,
     s_key_configs: &[GfrKeyConfig],
 ) -> anyhow::Result<SignedSecretKey> {
     let primary_type = resolve_key_type(&key_config.algo, false)?;
@@ -145,9 +149,10 @@ pub fn keygen_dynamic(
 
 pub fn create_key_internal(
     user_id: &str,
-    pwd_bytes: &[u8],
     key_config: GfrKeyConfig,
     s_key_configs: &[GfrKeyConfig],
+    fetch_pwd_cb: Option<GfrPasswordFetchCb>,
+    free_cb: Option<GfrFreeCb>,
 ) -> Result<GeneratedKeys, GfrStatus> {
     debug!(
         "Creating key for user_id: {}, algo: {:?}, can_sign: {}, can_encrypt: {}, can_auth: {}, subkey_count: {}",
@@ -160,23 +165,58 @@ pub fn create_key_internal(
     );
 
     let mut secret_key =
-        keygen_dynamic(user_id, key_config, s_key_configs).map_err(|e: anyhow::Error| {
+        keygen_dynamic(user_id, &key_config, s_key_configs).map_err(|e: anyhow::Error| {
             error!("Key generation failed: {}", e);
             GfrStatus::ErrorKeygenFailed
         })?;
 
-    if !pwd_bytes.is_empty() {
-        let password = Password::from(pwd_bytes);
+    let primary_pwd_bytes = if key_config.has_passphrase {
+        fetch_password_internal(
+            0, // Index 0 for primary key
+            &secret_key.fingerprint().to_string(),
+            "Generate Primary Key",
+            fetch_pwd_cb,
+            free_cb,
+        )?
+    } else {
+        Vec::new()
+    };
+
+    if key_config.has_passphrase && primary_pwd_bytes.is_empty() {
+        return Err(GfrStatus::ErrorFetchPasswordFailed);
+    }
+
+    if !primary_pwd_bytes.is_empty() {
+        // Encrypt Primary Key with the primary password
+        let primary_password = Password::from(primary_pwd_bytes.as_slice());
         secret_key
             .primary_key
-            .set_password(thread_rng(), &password)
+            .set_password(thread_rng(), &primary_password)
             .map_err(|_| GfrStatus::ErrorPasswordFailed)?;
 
-        for subkey in &mut secret_key.secret_subkeys {
-            subkey
-                .key
-                .set_password(thread_rng(), &password)
-                .map_err(|_| GfrStatus::ErrorPasswordFailed)?;
+        // Iterate through subkeys to set individual passwords
+        for (index, subkey) in secret_key.secret_subkeys.iter_mut().enumerate() {
+            // Determine if subkey needs a password based on your own configuration logic.
+            // For example, fetching a different password for each subkey:
+            let subkey_pwd_bytes = fetch_password_internal(
+                ((index + 1) as u32).try_into().unwrap(), // Use a different index for each subkey
+                &subkey.key.fingerprint().to_string(),
+                "Generate Subkey",
+                fetch_pwd_cb,
+                free_cb,
+            )?;
+
+            // If the subkey password is provided, apply it
+            if !subkey_pwd_bytes.is_empty() {
+                let sub_password = Password::from(subkey_pwd_bytes.as_slice());
+                subkey
+                    .key
+                    .set_password(thread_rng(), &sub_password)
+                    .map_err(|_| GfrStatus::ErrorPasswordFailed)?;
+            } else {
+                // Handle missing subkey password according to your app logic
+                return Err(GfrStatus::ErrorFetchPasswordFailed);
+            }
         }
     }
 
