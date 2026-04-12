@@ -58,7 +58,7 @@ auto FetchPublicKeyCallback(const char* fpr, void* user_data) -> char* {
 }
 
 auto FetchPasswordCallback(int channel, const char* fpr, const char* info,
-                           void* user_data) -> char* {
+                           uint8_t** out_pwd, void* /*user_data*/) -> int {
   QString qs_fpr = QString::fromUtf8(fpr).toUpper();
   GpgAbstractKeyPtr key = nullptr;
   if (qs_fpr.length() > 0) {
@@ -91,24 +91,23 @@ auto FetchPasswordCallback(int channel, const char* fpr, const char* info,
   loop.exec();
 
   if (result_pwd.isEmpty()) {
-    return nullptr;
+    return 0;
   }
 
   // Convert QString to UTF-8 byte array
   QByteArray utf8_pwd = result_pwd.toUtf8();
 
-  // Allocate raw C-string memory for Rust to consume
-  char* c_pwd = reinterpret_cast<char*>(
-      SMAMalloc(utf8_pwd.size() + 1));  // +1 for null terminator
+  // Allocate raw memory for Rust to consume
+  auto* c_pwd = reinterpret_cast<uint8_t*>(SMAMalloc(utf8_pwd.size()));
   std::memcpy(c_pwd, utf8_pwd.constData(), utf8_pwd.size());
-  c_pwd[utf8_pwd.size()] = '\0';
 
   // Attempt to clear the Qt buffers (Best effort since QString handles its own
   // memory)
   result_pwd.fill('X');
   utf8_pwd.fill('X');
 
-  return c_pwd;
+  *out_pwd = c_pwd;
+  return static_cast<int>(utf8_pwd.size());
 }
 
 void FreeCallback(void* ptr, void*) {

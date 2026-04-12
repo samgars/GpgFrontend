@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,16 +25,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
-use std::{
-    ffi::{CStr, CString, c_char, c_void},
-    io::{Cursor, Read},
-    ptr::null_mut,
-    time::{SystemTime, UNIX_EPOCH},
-};
 
-use crate::types::{
-    GfrFreeCb, GfrPasswordFetchCb, GfrPublicKeyFetchCb, GfrRecipientStatus, GfrSignMode,
-    GfrSignatureStatus, GfrStatus,
+use crate::{
+    types::{
+        GfrFreeCb, GfrPasswordFetchCb, GfrPublicKeyFetchCb, GfrRecipientStatus, GfrSignMode,
+        GfrSignatureStatus, GfrStatus,
+    },
+    utils::fetch_password_internal,
 };
 use log::debug;
 use pgp::{
@@ -49,6 +46,11 @@ use pgp::{
     types::{KeyDetails, Password, SecretParams},
 };
 use rand::thread_rng;
+use std::{
+    ffi::c_void,
+    io::{Cursor, Read},
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 pub struct InvalidRecipientInternal {
     pub fpr: String,
@@ -187,53 +189,6 @@ fn sniff_recipients(data: &[u8]) -> Vec<RecipientResultInternal> {
     results
 }
 
-pub fn fetch_password_internal(
-    channel: i32,
-    fpr: &str,
-    info: &str,
-    fetch_cb: Option<GfrPasswordFetchCb>,
-    free_cb: Option<GfrFreeCb>,
-) -> Result<String, GfrStatus> {
-    let Some(fetch_fn) = fetch_cb else {
-        return Err(GfrStatus::ErrorInvalidInput); // Free callback is required if fetch callback is provided
-    };
-
-    let Some(free_fn) = free_cb else {
-        return Err(GfrStatus::ErrorFetchPasswordFailed); // Password required but no callback provided
-    };
-
-    let mut password = String::new();
-    let info_c = CString::new(info).unwrap_or_default();
-    let fpr_c = CString::new(fpr).unwrap_or_default();
-
-    // If a password fetch callback is provided, use it to get the password
-    let pwd_ptr = fetch_fn(
-        channel,
-        fpr_c.as_ptr() as *const c_char,
-        info_c.as_ptr() as *const c_char,
-        null_mut(),
-    );
-
-    if pwd_ptr.is_null() {
-        return Err(GfrStatus::ErrorInvalidInput); // No password provided
-    }
-
-    let pwd_str = unsafe { CStr::from_ptr(pwd_ptr) }
-        .to_str()
-        .unwrap_or("")
-        .to_string();
-
-    free_fn(pwd_ptr as *mut std::ffi::c_void, null_mut());
-
-    if pwd_str.is_empty() {
-        return Err(GfrStatus::ErrorInvalidInput); // Empty password provided
-    };
-
-    debug!("Fetched password for decryption via callback");
-    password.push_str(&pwd_str);
-    Ok(pwd_str)
-}
-
 pub fn decrypt_internal(
     channel: i32,
     encrypted_data: &[u8],
@@ -289,7 +244,7 @@ pub fn decrypt_internal(
         }
     }
 
-    let mut password = String::new();
+    let mut password = Vec::<u8>::new();
 
     // If we determined that a password is needed, attempt to fetch it via the callback
     if needs_password {
@@ -301,7 +256,7 @@ pub fn decrypt_internal(
     }
 
     // 4. Attempt to decrypt the message
-    let pwd_fn = Password::from(password.as_bytes());
+    let pwd_fn = Password::from(password.as_slice());
     let mut decrypted = parsed_message
         .decrypt(&pwd_fn, &skey)
         .map_err(|_| GfrStatus::ErrorDecryptionFailed)?; // Fails if wrong key or wrong password
@@ -414,8 +369,8 @@ pub fn sign_internal(
     // Helper closure to fetch password dynamically for a specific key
     let fetch_pwd_for_key = |is_encrypted: bool, fpr: &str| -> Result<Password, GfrStatus> {
         if is_encrypted {
-            let pwd_str = fetch_password_internal(channel, fpr, "Signing", fetch_cb, free_cb)?;
-            Ok(Password::from(pwd_str.as_bytes()))
+            let pwd_bytes = fetch_password_internal(channel, fpr, "Signing", fetch_cb, free_cb)?;
+            Ok(Password::from(pwd_bytes.as_slice()))
         } else {
             debug!("Target secret key is unlocked. Bypassing password callback for signing.");
             Ok(Password::empty())
@@ -1031,8 +986,8 @@ pub fn encrypt_and_sign_internal(
     // Helper closure to dynamically fetch password for signing keys
     let fetch_pwd_for_key = |is_encrypted: bool, fpr: &str| -> Result<Password, GfrStatus> {
         if is_encrypted {
-            let pwd_str = fetch_password_internal(channel, fpr, "Signing", fetch_cb, free_cb)?;
-            Ok(Password::from(pwd_str.as_bytes()))
+            let pwd_bytes = fetch_password_internal(channel, fpr, "Signing", fetch_cb, free_cb)?;
+            Ok(Password::from(pwd_bytes.as_slice()))
         } else {
             debug!("Target secret key is unlocked. Bypassing password callback for signing.");
             Ok(Password::empty())
@@ -1219,7 +1174,7 @@ pub fn decrypt_and_verify_internal(
         }
     }
 
-    let mut password = String::new();
+    let mut password = Vec::<u8>::new();
 
     // Fetch password dynamically if the key is locked
     if needs_password {
@@ -1235,7 +1190,7 @@ pub fn decrypt_and_verify_internal(
     }
 
     // 4. Decrypt outer layer
-    let pwd_fn = Password::from(password.as_bytes());
+    let pwd_fn = Password::from(password.as_slice());
     let mut decrypted = parsed_message
         .decrypt(&pwd_fn, &skey)
         .map_err(|_| GfrStatus::ErrorInternal)?;

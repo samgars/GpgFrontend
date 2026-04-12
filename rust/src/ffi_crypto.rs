@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,6 +25,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
+
 use crate::crypto::get_signature_issuers_internal;
 use crate::types::{
     GfrDecryptAndVerifyResultC, GfrDecryptResultC, GfrEncryptAndSignResultC, GfrEncryptResultC,

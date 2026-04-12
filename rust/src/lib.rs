@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,6 +25,7 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
+
 pub mod ffi;
 pub mod ffi_crypto;
 pub mod ffi_mem;
@@ -33,3 +34,4 @@ pub mod crypto;
 pub mod key;
 pub mod keygen;
 pub mod types;
+pub mod utils;

@@ -54,6 +54,6 @@ void FreeCallback(void* ptr, void*);
  * @return char*
  */
 auto FetchPasswordCallback(int channel, const char* fpr, const char* info,
-                           void* /*user_data*/) -> char*;
+                           uint8_t** out_pwd, void* /*user_data*/) -> int;
 }
 }  // namespace GpgFrontend

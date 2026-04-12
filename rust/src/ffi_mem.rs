@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,13 +25,13 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
-use std::ffi::{CString, c_char};
 
 use crate::types::{
     GfrDecryptAndVerifyResultC, GfrDecryptMetadataC, GfrDecryptResultC, GfrEncryptAndSignResultC,
-    GfrEncryptMetadataC, GfrEncryptResultC, GfrSignMetadataC, GfrSignResultC, GfrVerifyMetadataC,
-    GfrVerifyResultC,
+    GfrEncryptMetadataC, GfrEncryptResultC, GfrKeyGenerateResult, GfrSignMetadataC, GfrSignResultC,
+    GfrVerifyMetadataC, GfrVerifyResultC,
 };
+use std::ffi::{CString, c_char};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_free_string(ptr: *mut c_char) {
@@ -46,6 +46,27 @@ pub extern "C" fn gfr_crypto_free_buffer(ptr: *mut u8, len: usize) {
         unsafe {
             let _ = Vec::from_raw_parts(ptr, len, len);
         }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_key_generate_result(result: *mut GfrKeyGenerateResult) {
+    if result.is_null() {
+        return;
+    }
+    unsafe {
+        if !(*result).secret_key.is_null() {
+            drop(CString::from_raw((*result).secret_key));
+        }
+        if !(*result).public_key.is_null() {
+            drop(CString::from_raw((*result).public_key));
+        }
+        if !(*result).fingerprint.is_null() {
+            drop(CString::from_raw((*result).fingerprint));
+        }
+        (*result).secret_key = std::ptr::null_mut();
+        (*result).public_key = std::ptr::null_mut();
+        (*result).fingerprint = std::ptr::null_mut();
     }
 }
 

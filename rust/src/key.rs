@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
  *
  * This file is part of GpgFrontend.
@@ -25,13 +25,17 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  *
  */
+
 use crate::types::{GfrKeyAlgo, GfrStatus};
+use pgp::armor::{self, BlockType};
 use pgp::{
     composed::{ArmorOptions, Deserializable, SignedPublicKey, SignedSecretKey},
     packet::Signature,
     ser::Serialize,
     types::{KeyDetails, PublicParams},
 };
+use std::io;
+
 pub struct ExtractedSubkey {
     pub fpr: String,
     pub key_id: String,
@@ -212,4 +216,65 @@ pub fn extract_public_key_internal(secret_block: &str) -> Result<String, GfrStat
         .map_err(|_| GfrStatus::ErrorArmorFailed)?;
 
     Ok(armored_p_key)
+}
+
+struct MergedRawKeys {
+    packet_bytes: Vec<u8>,
+}
+
+// 2. Implement the Serialize trait so rpgp's armor::write can consume it.
+impl Serialize for MergedRawKeys {
+    fn to_writer<W: io::Write>(&self, writer: &mut W) -> pgp::errors::Result<()> {
+        writer.write_all(&self.packet_bytes)?;
+        Ok(())
+    }
+
+    fn write_len(&self) -> usize {
+        self.packet_bytes.len()
+    }
+}
+
+pub fn export_merged_public_keys(key_blocks: &[&str]) -> Result<String, GfrStatus> {
+    let mut combined_bytes = Vec::new();
+
+    for block in key_blocks {
+        // 3. Try parsing as secret key first, fallback to public key.
+        let pub_key = if let Ok((sk, _)) = SignedSecretKey::from_string(block) {
+            SignedPublicKey::from(sk)
+        } else if let Ok((pk, _)) = SignedPublicKey::from_string(block) {
+            pk
+        } else {
+            return Err(GfrStatus::ErrorInvalidInput);
+        };
+
+        // 4. Serialize the underlying packets of this public key into our buffer.
+        pub_key
+            .to_writer(&mut combined_bytes)
+            .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+    }
+
+    if combined_bytes.is_empty() {
+        return Err(GfrStatus::ErrorInvalidInput);
+    }
+
+    // 5. Wrap the merged bytes into our custom struct.
+    let merged_source = MergedRawKeys {
+        packet_bytes: combined_bytes,
+    };
+
+    let mut armored_output = Vec::new();
+
+    // 6. Call the armor::write function you found in the source code.
+    // The arguments are: source, block_type, writer, headers, include_checksum.
+    armor::write(
+        &merged_source,
+        BlockType::PublicKey,
+        &mut armored_output,
+        None, // Or Some(&headers) if you need custom headers like "Version"
+        true, // Standard PGP includes the CRC checksum
+    )
+    .map_err(|_| GfrStatus::ErrorArmorFailed)?;
+
+    // 7. Convert the armored bytes back to a String.
+    String::from_utf8(armored_output).map_err(|_| GfrStatus::ErrorArmorFailed)
 }
