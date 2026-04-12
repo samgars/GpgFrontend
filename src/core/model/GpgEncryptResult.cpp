@@ -37,6 +37,9 @@ GpgEncryptResult::GpgEncryptResult(gpgme_encrypt_result_t r)
             }
           })) {}
 
+GpgEncryptResult::GpgEncryptResult(const GFEncryptResult& r)
+    : gf_result_ref_(QSharedPointer<GFEncryptResult>::create(r)) {}
+
 GpgEncryptResult::GpgEncryptResult() = default;
 
 GpgEncryptResult::~GpgEncryptResult() = default;
@@ -50,6 +53,18 @@ auto GpgEncryptResult::GetRaw() -> gpgme_encrypt_result_t {
 auto GpgEncryptResult::InvalidRecipients()
     -> QContainer<std::tuple<QString, GpgError>> {
   QContainer<std::tuple<QString, GpgError>> result;
+
+  if (gf_result_ref_ != nullptr) {
+    for (const auto& r : gf_result_ref_->invalid_recipients) {
+      result.push_back({r.fpr, r.reason});
+    }
+    return result;
+  }
+
+  if (result_ref_ == nullptr) {
+    return result;
+  }
+
   for (auto* invalid_key = result_ref_->invalid_recipients;
        invalid_key != nullptr; invalid_key = invalid_key->next) {
     try {

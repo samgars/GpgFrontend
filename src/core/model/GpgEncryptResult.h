@@ -42,12 +42,15 @@ class GF_CORE_EXPORT GpgEncryptResult {
 
   explicit GpgEncryptResult(gpgme_encrypt_result_t);
 
+  explicit GpgEncryptResult(const GFEncryptResult&);
+
   GpgEncryptResult();
 
   virtual ~GpgEncryptResult();
 
  private:
   QSharedPointer<struct _gpgme_op_encrypt_result> result_ref_ = nullptr;  ///<
+  QSharedPointer<struct GFEncryptResult> gf_result_ref_ = nullptr;        ///<
 };
 
 }  // namespace GpgFrontend

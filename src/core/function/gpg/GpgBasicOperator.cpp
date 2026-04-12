@@ -126,28 +126,47 @@ auto EncryptRpgpImpl(GpgContext& ctx_, const GpgAbstractKeyPtrList& keys,
   }
 
   std::string name;
-  uint8_t* out_encrypted = nullptr;
-  size_t out_len = 0;
+  Rust::GfrEncryptResultC encrypt_result;
 
   // Call Rust FFI. Ensure in_buffer is a null-terminated C-string if Rust
   // expects it.
-  auto status = Rust::gfr_crypto_encrypt_text(
+  auto status = Rust::gfr_crypto_encrypt_data(
       name.c_str(), reinterpret_cast<const uint8_t*>(in_buffer.Data()),
       in_buffer.Size(), recipient_cstrs.data(), recipient_cstrs.size(), ascii,
-      &out_encrypted, &out_len);
+      &encrypt_result);
 
-  if (status != Rust::GfrStatus::Success || (out_encrypted == nullptr)) {
+  if (status != Rust::GfrStatus::Success) {
     LOG_E() << "Rust FFI encryption failed.";
     return GPG_ERR_GENERAL;
   }
 
-  data_object->Swap({
-      GpgEncryptResult(),
-      GFBuffer(reinterpret_cast<const char*>(out_encrypted), out_len),
-  });
+  GFEncryptResult result;
+  for (size_t i = 0; i < encrypt_result.invalid_recipient_count; ++i) {
+    const auto& inv_rec = encrypt_result.invalid_recipients[i];
+
+    GpgError reason;
+    if (inv_rec.reason == Rust::GfrStatus::ErrorNoKey) {
+      reason = GPG_ERR_NO_KEY;
+    } else if (inv_rec.reason == Rust::GfrStatus::ErrorInvalidData) {
+      reason = GPG_ERR_INV_DATA;
+    } else {
+      reason = GPG_ERR_GENERAL;
+    }
+
+    result.invalid_recipients.push_back({
+        QString::fromUtf8(inv_rec.fpr),
+        reason,
+    });
+  }
+  result.data = GFBuffer(reinterpret_cast<const char*>(encrypt_result.data),
+                         encrypt_result.data_len);
+
+  Rust::gfr_crypto_free_encrypt_result(&encrypt_result);
+
+  data_object->Swap({GpgEncryptResult(result), result.data});
 
   // Free the memory allocated by Rust if necessary
-  Rust::gfr_crypto_free_buffer(out_encrypted, out_len);
+  Rust::gfr_crypto_free_buffer(encrypt_result.data, encrypt_result.data_len);
   return GPG_ERR_NO_ERROR;
 }
 
@@ -304,7 +323,7 @@ auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
       reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
       secret_key_utf8.constData(), "123456", &decrypt_result);
 
-  if (err != Rust::GfrStatus::Success || decrypt_result.data == nullptr) {
+  if (err != Rust::GfrStatus::Success) {
     LOG_E() << "Rust FFI decryption failed.";
     return GPG_ERR_GENERAL;
   }
@@ -315,13 +334,13 @@ auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
   result.filename = QString::fromUtf8(decrypt_result.filename);
   for (size_t i = 0; i < decrypt_result.recipient_count; ++i) {
     const auto& rec = decrypt_result.recipients[i];
-    GFRecipientStatus status = GFRecipientStatus::kERROR;
+    GpgError status;
     if (rec.status == Rust::GfrRecipientStatus::Success) {
-      status = GFRecipientStatus::kSUCCESS;
+      status = GPG_ERR_NO_ERROR;
     } else if (rec.status == Rust::GfrRecipientStatus::NoKey) {
-      status = GFRecipientStatus::kNO_KEY;
+      status = GPG_ERR_NO_KEY;
     } else {
-      status = GFRecipientStatus::kERROR;
+      status = GPG_ERR_GENERAL;
     }
     result.recipients.push_back({
         QString::fromUtf8(rec.key_id).toUpper(),

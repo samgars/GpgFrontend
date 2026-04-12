@@ -39,17 +39,5 @@ GpgRecipient::GpgRecipient(gpgme_recipient_t r) {
 }
 
 GpgRecipient::GpgRecipient(const GFRecipient& r)
-    : keyid(r.key_id), pubkey_algo(r.pub_algo) {
-  switch (r.status) {
-    case GFRecipientStatus::kSUCCESS:
-      status = GPG_ERR_NO_ERROR;
-      break;
-    case GFRecipientStatus::kNO_KEY:
-      status = GPG_ERR_NO_KEY;
-      break;
-    default:
-      status = GPG_ERR_GENERAL;
-      break;
-  }
-};
+    : keyid(r.key_id), pubkey_algo(r.pub_algo), status(r.status){};
 }  // namespace GpgFrontend
