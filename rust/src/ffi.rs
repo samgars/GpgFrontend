@@ -26,7 +26,7 @@
  *
  */
 
-use crate::key::extract_public_key_internal;
+use crate::key::{export_merged_public_keys, extract_public_key_internal};
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
     GfrFreeCb, GfrKeyConfig, GfrKeyGenerateResult, GfrKeyMetadataC, GfrPasswordFetchCb, GfrStatus,
@@ -287,5 +287,53 @@ pub extern "C" fn gfr_crypto_get_recipients(
         Ok(Ok(_)) => GfrStatus::Success,
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gfr_export_merged_public_keys(
+    keys_ptr: *const *const c_char,
+    keys_len: usize,
+    out_armored_ptr: *mut *mut c_char,
+) -> GfrStatus {
+    // 1. Check for null pointers to prevent segmentation faults
+    if keys_ptr.is_null() || out_armored_ptr.is_null() {
+        return GfrStatus::ErrorInvalidInput;
+    }
+
+    // 2. Convert the C array of pointers into a Rust slice of pointers
+    let c_str_ptrs = unsafe { slice::from_raw_parts(keys_ptr, keys_len) };
+    let mut rust_strs = Vec::with_capacity(keys_len);
+
+    // 3. Iterate through pointers, convert each to a Rust &str
+    for &ptr in c_str_ptrs {
+        if ptr.is_null() {
+            return GfrStatus::ErrorInvalidInput;
+        }
+
+        match unsafe { CStr::from_ptr(ptr).to_str() } {
+            Ok(s) => rust_strs.push(s),
+            Err(_) => return GfrStatus::ErrorInvalidInput, // Fails if not valid UTF-8
+        }
+    }
+
+    // 4. Call the core Rust function
+    match export_merged_public_keys(&rust_strs) {
+        Ok(armored_string) => {
+            // 5. Convert the resulting Rust String into a null-terminated CString
+            match CString::new(armored_string) {
+                Ok(c_str) => {
+                    // Transfer ownership of the memory to C (prevents Rust from dropping it)
+                    unsafe { *out_armored_ptr = c_str.into_raw() };
+
+                    // Assuming GfrStatus has a Success variant.
+                    // If your enum uses a different name for success, adjust this.
+                    GfrStatus::Success
+                }
+                // Handle cases where the output string somehow contains a null byte
+                Err(_) => GfrStatus::ErrorArmorFailed,
+            }
+        }
+        Err(status) => status, // Return the exact error status from the core function
     }
 }

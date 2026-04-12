@@ -130,7 +130,66 @@ auto ImportKeyRpgpImpl(GpgContext& ctx, const GFBuffer& in_buffer)
 
 auto ExportKeysRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& keys,
                         bool secret) -> std::tuple<GpgError, GFBuffer> {
-  return {GPG_ERR_GENERAL, {}};
+  auto key_db = ctx.KeyDatabase();
+
+  if (key_db == nullptr) {
+    LOG_E() << "key database is not initialized";
+    return {};
+  }
+
+  QContainer<QByteArray> key_blocks;
+
+  for (const auto& key : keys) {
+    auto key_block = key_db->GetKeyBlocks(key->Fingerprint());
+    if (!key_block) {
+      LOG_E() << "failed to get key block for fpr: " << key->Fingerprint();
+      continue;
+    }
+
+    if (secret && key_block->secret_key.isEmpty()) {
+      LOG_W() << "requested secret key export, but secret key block is empty "
+                 "for fpr: "
+              << key->Fingerprint();
+      continue;
+    }
+
+    if (!secret && key_block->public_key.isEmpty()) {
+      LOG_W() << "requested public key export, but public key block is empty "
+                 "for fpr: "
+              << key->Fingerprint();
+      continue;
+    }
+
+    key_blocks.push_back(
+        (secret ? key_block->secret_key : key_block->public_key).toUtf8());
+  }
+
+  if (key_blocks.empty()) {
+    LOG_E() << "no valid key blocks found for export";
+    return {};
+  }
+
+  char* out_armored_string = nullptr;
+
+  std::vector<char*> key_block_ptrs;
+  for (const auto& block : key_blocks) {
+    key_block_ptrs.push_back(const_cast<char*>(block.data()));
+  }
+
+  auto err = Rust::gfr_export_merged_public_keys(
+      key_block_ptrs.data(), key_block_ptrs.size(), &out_armored_string);
+  if (err != Rust::GfrStatus::Success) {
+    LOG_E() << "gfr_export_merged_public_keys error, code: "
+            << static_cast<int>(err);
+    return {GPG_ERR_GENERAL, {}};
+  }
+
+  auto qs_armored = QString::fromUtf8(out_armored_string);
+  Rust::gfr_crypto_free_string(out_armored_string);
+
+  LOG_D() << "exported armored string: " << qs_armored;
+
+  return {GPG_ERR_NO_ERROR, GFBuffer(qs_armored)};
 }
 
 }  // namespace GpgFrontend
