@@ -28,29 +28,16 @@
 
 #pragma once
 
-#include "core/function/gpg/GpgContext.h"
-#include "core/model/GpgImportInformation.h"
+#include "core/function/gpg/GpgKeyImportExporter.h"
+#include "core/model/GpgKeyGenerateInfo.h"
 
 namespace GpgFrontend {
+auto GenerateKeyWithSubkeyRpgpImpl(
+    GpgKeyImportExporter& kie, const QSharedPointer<KeyGenerateInfo>& p_params,
+    const QSharedPointer<KeyGenerateInfo>& s_params,
+    const DataObjectPtr& data_object) -> GpgError;
 
-/**
- * @brief
- *
- * @param ctx
- * @param in_buffer
- * @return auto
- */
-auto ImportKeyRpgpImpl(GpgContext& ctx, const GFBuffer& in_buffer)
-    -> QSharedPointer<GpgImportInformation>;
-
-/**
- * @brief
- *
- * @param ctx
- * @param keys
- * @param secret
- * @return std::tuple<GpgError, GFBuffer>
- */
-auto ExportKeysRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& keys,
-                        bool secret) -> std::tuple<GpgError, GFBuffer>;
+auto GenerateKeyRpgpImpl(GpgKeyImportExporter& key_import_exporter,
+                         const QSharedPointer<KeyGenerateInfo>& params,
+                         const DataObjectPtr& data_object) -> GpgError;
 }  // namespace GpgFrontend

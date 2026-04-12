@@ -128,4 +128,9 @@ auto ImportKeyRpgpImpl(GpgContext& ctx, const GFBuffer& in_buffer)
   return {};
 }
 
+auto ExportKeysRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& keys,
+                        bool secret) -> std::tuple<GpgError, GFBuffer> {
+  return {GPG_ERR_GENERAL, {}};
+}
+
 }  // namespace GpgFrontend
