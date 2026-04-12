@@ -35,11 +35,13 @@
 #include "core/function/gpg/GpgAbstractKeyGetter.h"
 #include "core/model/CacheObject.h"
 #include "core/model/GpgImportInformation.h"
+#include "core/model/GpgPassphraseContext.h"
 #include "core/module/ModuleManager.h"
 #include "core/struct/cache_object/AllFavoriteKeyPairsCO.h"
 #include "core/thread/Task.h"
 #include "core/thread/TaskRunnerGetter.h"
 #include "core/typedef/GpgTypedef.h"
+#include "core/utils/CommonUtils.h"
 #include "core/utils/GpgUtils.h"
 #include "core/utils/IOUtils.h"
 #include "dialog/import_export/KeyImportDetailDialog.h"
@@ -125,6 +127,37 @@ CommonUtils::CommonUtils() : QWidget(nullptr) {
             emit SignalRestartApplication(0);
             break;
         }
+      });
+
+  connect(
+      CoreSignalStation::GetInstance(),
+      &CoreSignalStation::SignalNeedUserInputPassphrase,
+      QApplication::instance(),
+      [=](const QSharedPointer<GpgPassphraseContext> &c)
+
+          -> void {
+        bool ok;
+
+        QString label = tr("Enter passphrase for: ") + "\n" +
+                        QString("%1").arg(c->GetPassphraseInfo()) + "\n";
+
+        if (c->GetKey() != nullptr) {
+          label += tr("Key ID: %1").arg(c->GetKey()->ID()) + "\n";
+          label += tr("Key UID: %1").arg(c->GetKey()->UID()) + "\n";
+        }
+
+        // TODO: For absolute highest security, avoid QInputDialog.
+        auto result_pwd =
+            QInputDialog::getText(nullptr, tr("Passphrase Required"), label,
+                                  QLineEdit::Password, QString(), &ok);
+
+        if (!ok) {
+          result_pwd.clear();  // User canceled
+        }
+
+        c->SetPassphrase(result_pwd);
+        emit CoreSignalStation::GetInstance()->SignalUserInputPassphraseReady(
+            c);
       });
 }
 
@@ -324,7 +357,7 @@ void CommonUtils::slot_update_key_from_server_finished(
   }
 
   // refresh the key database
-  emit UISignalStation::GetInstance() -> SignalKeyDatabaseRefresh();
+  emit UISignalStation::GetInstance()->SignalKeyDatabaseRefresh();
 
   auto *connection = new QMetaObject::Connection;
   *connection =
