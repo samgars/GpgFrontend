@@ -1,10 +1,13 @@
 use std::{
-    ffi::c_void,
+    ffi::{CStr, CString, c_char, c_void},
     io::{Cursor, Read},
+    ptr::null_mut,
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::types::{GfrRecipientStatus, GfrSignMode, GfrSignatureStatus, GfrStatus};
+use crate::types::{
+    GfrFreeCb, GfrPasswordFetchCb, GfrRecipientStatus, GfrSignMode, GfrSignatureStatus, GfrStatus,
+};
 use log::debug;
 use pgp::{
     armor::Dearmor,
@@ -15,7 +18,7 @@ use pgp::{
     crypto::{hash::HashAlgorithm, public_key::PublicKeyAlgorithm, sym::SymmetricKeyAlgorithm},
     packet::{Packet, PacketParser},
     ser::Serialize,
-    types::{KeyDetails, Password},
+    types::{KeyDetails, Password, SecretParams},
 };
 use rand::thread_rng;
 
@@ -156,10 +159,59 @@ fn sniff_recipients(data: &[u8]) -> Vec<RecipientResultInternal> {
     results
 }
 
+pub fn fetch_password_internal(
+    channel: i32,
+    fpr: &str,
+    info: &str,
+    fetch_cb: Option<GfrPasswordFetchCb>,
+    free_cb: Option<GfrFreeCb>,
+) -> Result<String, GfrStatus> {
+    let Some(fetch_fn) = fetch_cb else {
+        return Err(GfrStatus::ErrorInvalidInput); // Free callback is required if fetch callback is provided
+    };
+
+    let Some(free_fn) = free_cb else {
+        return Err(GfrStatus::ErrorFetchPasswordFailed); // Password required but no callback provided
+    };
+
+    let mut password = String::new();
+    let info_c = CString::new(info).unwrap_or_default();
+    let fpr_c = CString::new(fpr).unwrap_or_default();
+
+    // If a password fetch callback is provided, use it to get the password
+    let pwd_ptr = fetch_fn(
+        channel,
+        fpr_c.as_ptr() as *const c_char,
+        info_c.as_ptr() as *const c_char,
+        null_mut(),
+    );
+
+    if pwd_ptr.is_null() {
+        return Err(GfrStatus::ErrorInvalidInput); // No password provided
+    }
+
+    let pwd_str = unsafe { CStr::from_ptr(pwd_ptr) }
+        .to_str()
+        .unwrap_or("")
+        .to_string();
+
+    free_fn(pwd_ptr as *mut std::ffi::c_void, null_mut());
+
+    if pwd_str.is_empty() {
+        return Err(GfrStatus::ErrorInvalidInput); // Empty password provided
+    };
+
+    debug!("Fetched password for decryption via callback");
+    password.push_str(&pwd_str);
+    Ok(pwd_str)
+}
+
 pub fn decrypt_internal(
+    channel: i32,
     encrypted_data: &[u8],
     secret_key_block: &str,
-    password: &str,
+    fetch_pwd_cb: Option<GfrPasswordFetchCb>,
+    free_cb: Option<GfrFreeCb>,
 ) -> Result<DecryptResultInternal, GfrStatus> {
     // 1. Parse the provided secret key block
     let (skey, _) =
@@ -177,11 +229,54 @@ pub fn decrypt_internal(
         return Err(GfrStatus::ErrorInvalidInput);
     };
 
+    // 4. Determine if we need to fetch a password
+    let mut needs_password = false;
+    let primary_id = skey.primary_key.legacy_key_id().to_string();
+
+    // Helper closure to check if a recipient ID is the special "anonymous" ID that matches any key
+    let is_anonymous = |id: &str| id == "0000000000000000";
+
+    // Check primary key first: if any recipient matches the primary key ID (or
+    // is anonymous) and the primary key is encrypted, we need a password
+    if recipients
+        .iter()
+        .any(|r| r.key_id == primary_id || is_anonymous(&r.key_id))
+        && matches!(skey.primary_key.secret_params(), SecretParams::Encrypted(_))
+    {
+        needs_password = true;
+    }
+
+    // If we don't need a password for the primary key, check the subkeys in the same way
+    if !needs_password {
+        for subkey in &skey.secret_subkeys {
+            let subkey_id = subkey.key.legacy_key_id().to_string();
+            if recipients
+                .iter()
+                .any(|r| r.key_id == subkey_id || is_anonymous(&r.key_id))
+                && matches!(subkey.key.secret_params(), SecretParams::Encrypted(_))
+            {
+                needs_password = true;
+                break;
+            }
+        }
+    }
+
+    let mut password = String::new();
+
+    // If we determined that a password is needed, attempt to fetch it via the callback
+    if needs_password {
+        let fpr_string = skey.primary_key.fingerprint().to_string();
+        password =
+            fetch_password_internal(channel, &fpr_string, "Decryption", fetch_pwd_cb, free_cb)?;
+    } else {
+        debug!("Target secret key is unlocked. Bypassing password callback.");
+    }
+
     // 4. Attempt to decrypt the message
     let pwd_fn = Password::from(password.as_bytes());
     let mut decrypted = parsed_message
         .decrypt(&pwd_fn, &skey)
-        .map_err(|_| GfrStatus::ErrorInternal)?; // Fails if wrong key or wrong password
+        .map_err(|_| GfrStatus::ErrorDecryptionFailed)?; // Fails if wrong key or wrong password
 
     // 5. If decryption is successful, update the recipient list status
     let primary_id = skey.primary_key.legacy_key_id().to_string();
@@ -243,14 +338,16 @@ pub struct SignResultInternal {
 }
 
 pub fn sign_internal(
+    channel: i32, // New param for context
     name: &str,
     data: &[u8],
     secret_key_blocks: &[&str],
-    passwords: &[&str],
+    fetch_cb: Option<GfrPasswordFetchCb>,
+    free_cb: Option<GfrFreeCb>,
     mode: GfrSignMode,
     ascii_armor: bool,
 ) -> Result<SignResultInternal, GfrStatus> {
-    if secret_key_blocks.len() != passwords.len() || secret_key_blocks.is_empty() {
+    if secret_key_blocks.is_empty() {
         return Err(GfrStatus::ErrorInvalidInput);
     }
 
@@ -278,12 +375,23 @@ pub fn sign_internal(
     let mut record_sig = |fpr: String, algo: PublicKeyAlgorithm| {
         created_signatures.push(SignatureResultInternal {
             fpr,
-            status: GfrSignatureStatus::Valid, // Always Valid for newly created signatures
+            status: GfrSignatureStatus::Valid,
             created_at: current_time,
             pub_algo: algo_to_string_simple(algo),
-            hash_algo: "SHA512".to_string(), // Hardcoded SHA512 in builder.sign()
+            hash_algo: "SHA512".to_string(),
             sig_type: mode,
         });
+    };
+
+    // Helper closure to fetch password dynamically for a specific key
+    let fetch_pwd_for_key = |is_encrypted: bool, fpr: &str| -> Result<Password, GfrStatus> {
+        if is_encrypted {
+            let pwd_str = fetch_password_internal(channel, fpr, "Signing", fetch_cb, free_cb)?;
+            Ok(Password::from(pwd_str.as_bytes()))
+        } else {
+            debug!("Target secret key is unlocked. Bypassing password callback for signing.");
+            Ok(Password::empty())
+        }
     };
 
     // 2. Route the operation based on the selected mode
@@ -295,15 +403,20 @@ pub fn sign_internal(
             let mut builder = MessageBuilder::from_bytes(name.as_bytes().to_vec(), data.to_vec());
             let mut at_least_one_signer = false;
 
-            for i in 0..parsed_keys.len() {
-                let skey = &parsed_keys[i];
+            for skey in &parsed_keys {
                 let mut added_for_this_key = false;
 
                 for subkey in &skey.secret_subkeys {
                     if subkey.key.algorithm().can_sign() {
-                        let pwd_fn = Password::from(passwords[i].as_bytes());
+                        let fpr = subkey.key.fingerprint().to_string();
+                        let pwd_fn = fetch_pwd_for_key(
+                            matches!(subkey.key.secret_params(), SecretParams::Encrypted(_)),
+                            &fpr,
+                        )?;
+
                         builder.sign(&subkey.key, pwd_fn, HashAlgorithm::Sha512);
-                        record_sig(subkey.key.fingerprint().to_string(), subkey.key.algorithm());
+                        record_sig(fpr, subkey.key.algorithm());
+
                         added_for_this_key = true;
                         at_least_one_signer = true;
                         break;
@@ -311,12 +424,15 @@ pub fn sign_internal(
                 }
 
                 if !added_for_this_key && skey.primary_key.algorithm().can_sign() {
-                    let fallback_pwd = Password::from(passwords[i].as_bytes());
+                    let fpr = skey.primary_key.fingerprint().to_string();
+                    let fallback_pwd = fetch_pwd_for_key(
+                        matches!(skey.primary_key.secret_params(), SecretParams::Encrypted(_)),
+                        &fpr,
+                    )?;
+
                     builder.sign(&skey.primary_key, fallback_pwd, HashAlgorithm::Sha512);
-                    record_sig(
-                        skey.primary_key.fingerprint().to_string(),
-                        skey.primary_key.algorithm(),
-                    );
+                    record_sig(fpr, skey.primary_key.algorithm());
+
                     at_least_one_signer = true;
                 }
             }
@@ -349,19 +465,20 @@ pub fn sign_internal(
             let text = std::str::from_utf8(data).unwrap().to_string();
 
             // Find the first valid signer and generate the cleartext message
-            for i in 0..parsed_keys.len() {
-                let skey = &parsed_keys[i];
-
+            // Note: Cleartext signatures only support ONE signer in this implementation
+            // (due to the return statement breaking the loop)
+            for skey in &parsed_keys {
                 for subkey in &skey.secret_subkeys {
                     if subkey.key.algorithm().can_sign() {
-                        let pwd = Password::from(passwords[i].as_bytes());
+                        let fpr = subkey.key.fingerprint().to_string();
+                        let is_encrypted =
+                            matches!(subkey.key.secret_params(), SecretParams::Encrypted(_));
+                        let pwd = fetch_pwd_for_key(is_encrypted, &fpr)?;
+
                         if let Ok(msg) =
                             CleartextSignedMessage::sign(&mut rng, &text, &subkey.key, &pwd)
                         {
-                            record_sig(
-                                subkey.key.fingerprint().to_string(),
-                                subkey.key.algorithm(),
-                            );
+                            record_sig(fpr, subkey.key.algorithm());
                             let out = msg
                                 .to_armored_string(ArmorOptions::default())
                                 .map_err(|_| GfrStatus::ErrorArmorFailed)?
@@ -375,14 +492,15 @@ pub fn sign_internal(
                 }
 
                 if skey.primary_key.algorithm().can_sign() {
-                    let pwd = Password::from(passwords[i].as_bytes());
+                    let fpr = skey.primary_key.fingerprint().to_string();
+                    let is_encrypted =
+                        matches!(skey.primary_key.secret_params(), SecretParams::Encrypted(_));
+                    let pwd = fetch_pwd_for_key(is_encrypted, &fpr)?;
+
                     if let Ok(msg) =
                         CleartextSignedMessage::sign(&mut rng, &text, &skey.primary_key, &pwd)
                     {
-                        record_sig(
-                            skey.primary_key.fingerprint().to_string(),
-                            skey.primary_key.algorithm(),
-                        );
+                        record_sig(fpr, skey.primary_key.algorithm());
                         let out = msg
                             .to_armored_string(ArmorOptions::default())
                             .map_err(|_| GfrStatus::ErrorArmorFailed)?
@@ -403,12 +521,14 @@ pub fn sign_internal(
         // ---------------------------------------------------------
         GfrSignMode::Detached => {
             // Find the first valid signer and generate the detached signature
-            for i in 0..parsed_keys.len() {
-                let skey = &parsed_keys[i];
-
+            for skey in &parsed_keys {
                 for subkey in &skey.secret_subkeys {
                     if subkey.key.algorithm().can_sign() {
-                        let pwd = Password::from(passwords[i].as_bytes());
+                        let fpr = subkey.key.fingerprint().to_string();
+                        let is_encrypted =
+                            matches!(subkey.key.secret_params(), SecretParams::Encrypted(_));
+                        let pwd = fetch_pwd_for_key(is_encrypted, &fpr)?;
+
                         if let Ok(sig) = DetachedSignature::sign_binary_data(
                             &mut rng,
                             &subkey.key,
@@ -416,10 +536,7 @@ pub fn sign_internal(
                             HashAlgorithm::Sha512,
                             data,
                         ) {
-                            record_sig(
-                                subkey.key.fingerprint().to_string(),
-                                subkey.key.algorithm(),
-                            );
+                            record_sig(fpr, subkey.key.algorithm());
                             let out = if ascii_armor {
                                 sig.to_armored_bytes(None.into())
                                     .map_err(|_| GfrStatus::ErrorArmorFailed)?
@@ -435,7 +552,11 @@ pub fn sign_internal(
                 }
 
                 if skey.primary_key.algorithm().can_sign() {
-                    let pwd = Password::from(passwords[i].as_bytes());
+                    let fpr = skey.primary_key.fingerprint().to_string();
+                    let is_encrypted =
+                        matches!(skey.primary_key.secret_params(), SecretParams::Encrypted(_));
+                    let pwd = fetch_pwd_for_key(is_encrypted, &fpr)?;
+
                     if let Ok(sig) = DetachedSignature::sign_binary_data(
                         &mut rng,
                         &skey.primary_key,
@@ -443,10 +564,7 @@ pub fn sign_internal(
                         HashAlgorithm::Sha512,
                         data,
                     ) {
-                        record_sig(
-                            skey.primary_key.fingerprint().to_string(),
-                            skey.primary_key.algorithm(),
-                        );
+                        record_sig(fpr, skey.primary_key.algorithm());
                         let out = if ascii_armor {
                             sig.to_armored_bytes(None.into())
                                 .map_err(|_| GfrStatus::ErrorArmorFailed)?

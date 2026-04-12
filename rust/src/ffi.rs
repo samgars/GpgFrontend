@@ -3,8 +3,9 @@ use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
     GfrDecryptAndVerifyResultC, GfrDecryptResultC, GfrEncryptAndSignResultC, GfrEncryptResultC,
-    GfrInvalidRecipientC, GfrKeyConfig, GfrKeyMetadataC, GfrRecipientResultC, GfrSignMode,
-    GfrSignResultC, GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC, GfrVerifyResultC,
+    GfrFreeCb, GfrInvalidRecipientC, GfrKeyConfig, GfrKeyMetadataC, GfrPasswordFetchCb,
+    GfrRecipientResultC, GfrSignMode, GfrSignResultC, GfrSignatureResultC, GfrStatus,
+    GfrSubkeyMetadataC, GfrVerifyResultC,
 };
 use log::LevelFilter;
 use std::slice;
@@ -333,10 +334,12 @@ pub extern "C" fn gfr_crypto_encrypt_data(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_decrypt_data(
+    channel: i32,
     in_data: *const u8,
     in_len: usize,
     secret_key: *const c_char,
-    password: *const c_char,
+    fetch_pwd_cb: GfrPasswordFetchCb,
+    free_cb: crate::types::GfrFreeCb,
     out_result: *mut GfrDecryptResultC, // Replaces out_name, out_data, out_len
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<(), GfrStatus> {
@@ -347,14 +350,14 @@ pub extern "C" fn gfr_crypto_decrypt_data(
         let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
         let skey_str = unsafe { CStr::from_ptr(secret_key) }.to_str().unwrap_or("");
 
-        let pwd_str = if password.is_null() {
-            ""
-        } else {
-            unsafe { CStr::from_ptr(password) }.to_str().unwrap_or("")
-        };
-
         // Perform decryption
-        let mut internal_result = crate::crypto::decrypt_internal(data_slice, skey_str, pwd_str)?;
+        let mut internal_result = crate::crypto::decrypt_internal(
+            channel,
+            data_slice,
+            skey_str,
+            Some(fetch_pwd_cb),
+            Some(free_cb),
+        )?;
 
         // 1. Process Payload
         internal_result.data.shrink_to_fit();
@@ -431,23 +434,20 @@ pub extern "C" fn gfr_crypto_get_recipients(
 
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_sign_data(
+    channel: i32,
     name: *const c_char,
     in_data: *const u8,
     in_len: usize,
     secret_keys: *const *const c_char,
-    passwords: *const *const c_char,
     signers_count: usize,
+    fetch_pwd_cb: GfrPasswordFetchCb,
+    free_cb: GfrFreeCb,
     mode: GfrSignMode,
     ascii: bool,
     out_result: *mut GfrSignResultC, // Replaced out_data/out_len with struct ptr
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<(), GfrStatus> {
-        if name.is_null()
-            || in_data.is_null()
-            || secret_keys.is_null()
-            || passwords.is_null()
-            || out_result.is_null()
-        {
+        if name.is_null() || in_data.is_null() || secret_keys.is_null() || out_result.is_null() {
             return Err(GfrStatus::ErrorInvalidInput);
         }
 
@@ -455,34 +455,30 @@ pub extern "C" fn gfr_crypto_sign_data(
         let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
 
         let mut skey_blocks = Vec::with_capacity(signers_count);
-        let mut pwd_blocks = Vec::with_capacity(signers_count);
 
         unsafe {
             let sk_slice = slice::from_raw_parts(secret_keys, signers_count);
-            let pwd_slice = slice::from_raw_parts(passwords, signers_count);
 
             for i in 0..signers_count {
-                if sk_slice[i].is_null() || pwd_slice[i].is_null() {
+                if sk_slice[i].is_null() {
                     return Err(GfrStatus::ErrorInvalidInput);
                 }
                 let sk_str = CStr::from_ptr(sk_slice[i])
                     .to_str()
                     .map_err(|_| GfrStatus::ErrorInvalidInput)?;
-                let pw_str = CStr::from_ptr(pwd_slice[i])
-                    .to_str()
-                    .map_err(|_| GfrStatus::ErrorInvalidInput)?;
 
                 skey_blocks.push(sk_str);
-                pwd_blocks.push(pw_str);
             }
         }
 
         // Perform the multi-signature and get the structured report
         let mut internal_result = crate::crypto::sign_internal(
+            channel,
             name_str,
             data_slice,
             &skey_blocks,
-            &pwd_blocks,
+            Some(fetch_pwd_cb),
+            Some(free_cb),
             mode,
             ascii,
         )?;

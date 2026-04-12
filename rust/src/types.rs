@@ -12,6 +12,8 @@ pub enum GfrStatus {
     ErrorInternal = -5,     // internal conversion error (e.g., CString contains \0)
     ErrorNoKey = -6,        // required key not found for operation
     ErrorInvalidData = -7,  // data is not in expected format (e.g., not a valid OpenPGP message)
+    ErrorDecryptionFailed = -8, // decryption failed likely due to wrong key or password
+    ErrorFetchPasswordFailed = -9, // password callback failed to provide a valid password
     ErrorPanic = -99,       // Rust internal panic
 }
 
@@ -213,3 +215,11 @@ pub type GfrPublicKeyFetchCb =
 
 // Callback to free the memory allocated by the fetch callback.
 pub type GfrFreeCb = extern "C" fn(ptr: *mut c_void, user_data: *mut c_void);
+
+// Callback to fetch a password for a given key hint (e.g., fingerprint).
+pub type GfrPasswordFetchCb = extern "C" fn(
+    channel: i32,
+    fpr: *const c_char,
+    info: *const c_char,
+    user_data: *mut c_void,
+) -> *mut c_char;
