@@ -117,7 +117,7 @@ auto GpgKeyImportExporter::ExportKey(const GpgAbstractKeyPtr& key, bool secret,
                                      bool ssh_mode) const
     -> std::tuple<GpgError, GFBuffer> {
   if (ctx_.BackendType() == PGPBackendType::kRPGP) {
-    return ExportKeyRpgpImpl(ctx_, key, secret);
+    return ExportKeysRpgpImpl(ctx_, {key}, secret);
   }
   return ExportKeysImpl(ctx_, {key}, secret, ascii, shortest, ssh_mode);
 }
