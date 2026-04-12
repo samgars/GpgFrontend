@@ -30,21 +30,26 @@
 
 #pragma once
 
+#include "core/typedef/GpgTypedef.h"
+
 namespace GpgFrontend {
 
 class GF_CORE_EXPORT GpgPassphraseContext : public QObject {
   Q_OBJECT
  public:
-  GpgPassphraseContext(const QString& uids_info, const QString& passphrase_info,
-                       bool prev_was_bad, bool ask_for_new);
+  GpgPassphraseContext(int channel, GpgAbstractKeyPtr fpr,
+                       QString passphrase_info, bool prev_was_bad,
+                       bool ask_for_new);
 
   GpgPassphraseContext();
 
   void SetPassphrase(const QString& passphrase);
 
+  [[nodiscard]] auto GetChannel() const -> int;
+
   [[nodiscard]] auto GetPassphrase() const -> QString;
 
-  [[nodiscard]] auto GetUidsInfo() const -> QString;
+  [[nodiscard]] auto GetKey() const -> GpgAbstractKeyPtr;
 
   [[nodiscard]] auto GetPassphraseInfo() const -> QString;
 
@@ -53,8 +58,9 @@ class GF_CORE_EXPORT GpgPassphraseContext : public QObject {
   [[nodiscard]] auto IsAskForNew() const -> bool;
 
  private:
+  int channel_;
   QString passphrase_info_;
-  QString uids_info_;
+  GpgAbstractKeyPtr key_;
   QString passphrase_;
   bool prev_was_bad_;
   bool ask_for_new_;

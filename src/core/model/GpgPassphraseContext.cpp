@@ -28,13 +28,16 @@
 
 #include "GpgPassphraseContext.h"
 
+#include <utility>
+
 namespace GpgFrontend {
 
-GpgPassphraseContext::GpgPassphraseContext(const QString& uids_info,
-                                           const QString& passphrase_info,
+GpgPassphraseContext::GpgPassphraseContext(int channel, GpgAbstractKeyPtr key,
+                                           QString passphrase_info,
                                            bool prev_was_bad, bool ask_for_new)
-    : passphrase_info_(passphrase_info),
-      uids_info_(uids_info),
+    : channel_(channel),
+      passphrase_info_(std::move(passphrase_info)),
+      key_(std::move(key)),
       prev_was_bad_(prev_was_bad),
       ask_for_new_(ask_for_new) {}
 
@@ -48,7 +51,9 @@ void GpgPassphraseContext::SetPassphrase(const QString& passphrase) {
   passphrase_ = passphrase;
 }
 
-auto GpgPassphraseContext::GetUidsInfo() const -> QString { return uids_info_; }
+auto GpgPassphraseContext::GetChannel() const -> int { return channel_; }
+
+auto GpgPassphraseContext::GetKey() const -> GpgAbstractKeyPtr { return key_; }
 
 auto GpgPassphraseContext::GetPassphraseInfo() const -> QString {
   return passphrase_info_;
