@@ -1,3 +1,30 @@
+/**
+ * Copyright (C) 2021-2024 Saturneric <eric@bktus.com>
+ *
+ * This file is part of GpgFrontend.
+ *
+ * GpgFrontend is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * GpgFrontend is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with GpgFrontend. If not, see <https://www.gnu.org/licenses/>.
+ *
+ * The initial version of the source code is inherited from
+ * the gpg4usb project, which is under GPL-3.0-or-later.
+ *
+ * All the source code of GpgFrontend was modified and released by
+ * Saturneric <eric@bktus.com> starting on May 12, 2021.
+ *
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ *
+ */
 use std::{
     ffi::{CStr, CString, c_char, c_void},
     io::{Cursor, Read},
@@ -6,7 +33,8 @@ use std::{
 };
 
 use crate::types::{
-    GfrFreeCb, GfrPasswordFetchCb, GfrRecipientStatus, GfrSignMode, GfrSignatureStatus, GfrStatus,
+    GfrFreeCb, GfrPasswordFetchCb, GfrPublicKeyFetchCb, GfrRecipientStatus, GfrSignMode,
+    GfrSignatureStatus, GfrStatus,
 };
 use log::debug;
 use pgp::{
@@ -956,14 +984,17 @@ pub struct EncryptAndSignResultInternal {
 }
 
 pub fn encrypt_and_sign_internal(
+    channel: i32, // Added for callback context
     name: &str,
     data: &[u8],
     public_key_blocks: &[&str],
     secret_key_blocks: &[&str],
-    passwords: &[&str],
+    fetch_cb: Option<GfrPasswordFetchCb>, // Added
+    free_cb: Option<GfrFreeCb>,           // Added
     ascii_armor: bool,
 ) -> Result<EncryptAndSignResultInternal, GfrStatus> {
-    if secret_key_blocks.len() != passwords.len() || secret_key_blocks.is_empty() {
+    // Check if we have at least one secret key to sign with
+    if secret_key_blocks.is_empty() {
         return Err(GfrStatus::ErrorInvalidInput);
     }
 
@@ -997,29 +1028,53 @@ pub fn encrypt_and_sign_internal(
         });
     };
 
+    // Helper closure to dynamically fetch password for signing keys
+    let fetch_pwd_for_key = |is_encrypted: bool, fpr: &str| -> Result<Password, GfrStatus> {
+        if is_encrypted {
+            let pwd_str = fetch_password_internal(channel, fpr, "Signing", fetch_cb, free_cb)?;
+            Ok(Password::from(pwd_str.as_bytes()))
+        } else {
+            debug!("Target secret key is unlocked. Bypassing password callback for signing.");
+            Ok(Password::empty())
+        }
+    };
+
     let mut at_least_one_signer = false;
-    for i in 0..parsed_skeys.len() {
-        let skey = &parsed_skeys[i];
+
+    // Iterate over each provided signing key
+    for skey in &parsed_skeys {
         let mut added_for_this_key = false;
 
+        // Try to find a valid signing subkey
         for subkey in &skey.secret_subkeys {
             if subkey.key.algorithm().can_sign() {
-                let pwd_fn = Password::from(passwords[i].as_bytes());
+                let fpr = subkey.key.fingerprint().to_string();
+                let is_encrypted = matches!(subkey.key.secret_params(), SecretParams::Encrypted(_));
+
+                // Dynamically fetch password if needed
+                let pwd_fn = fetch_pwd_for_key(is_encrypted, &fpr)?;
+
                 builder.sign(&subkey.key, pwd_fn, HashAlgorithm::Sha512);
-                record_sig(subkey.key.fingerprint().to_string(), subkey.key.algorithm());
+                record_sig(fpr, subkey.key.algorithm());
+
                 added_for_this_key = true;
                 at_least_one_signer = true;
                 break;
             }
         }
 
+        // Fallback to primary key if no valid subkeys
         if !added_for_this_key && skey.primary_key.algorithm().can_sign() {
-            let fallback_pwd = Password::from(passwords[i].as_bytes());
+            let fpr = skey.primary_key.fingerprint().to_string();
+            let is_encrypted =
+                matches!(skey.primary_key.secret_params(), SecretParams::Encrypted(_));
+
+            // Dynamically fetch password if needed
+            let fallback_pwd = fetch_pwd_for_key(is_encrypted, &fpr)?;
+
             builder.sign(&skey.primary_key, fallback_pwd, HashAlgorithm::Sha512);
-            record_sig(
-                skey.primary_key.fingerprint().to_string(),
-                skey.primary_key.algorithm(),
-            );
+            record_sig(fpr, skey.primary_key.algorithm());
+
             at_least_one_signer = true;
         }
     }
@@ -1110,11 +1165,12 @@ pub struct DecryptAndVerifyResultInternal {
 }
 
 pub fn decrypt_and_verify_internal(
+    channel: i32, // Added for password callback
     encrypted_data: &[u8],
     secret_key_block: &str,
-    password: &str,
-    fetch_cb: Option<crate::types::GfrPublicKeyFetchCb>,
-    free_cb: Option<crate::types::GfrFreeCb>,
+    fetch_pwd_cb: Option<GfrPasswordFetchCb>,     // Added
+    fetch_pubkey_cb: Option<GfrPublicKeyFetchCb>, // Renamed to distinguish from pwd
+    free_cb: Option<GfrFreeCb>,                   // Shared free callback
     user_data: *mut c_void,
 ) -> Result<DecryptAndVerifyResultInternal, GfrStatus> {
     // 1. Parse secret key
@@ -1132,33 +1188,79 @@ pub fn decrypt_and_verify_internal(
         return Err(GfrStatus::ErrorInvalidInput);
     };
 
-    // 3. Decrypt outer layer
+    // 3. Determine if we need to fetch a password
+    let mut needs_password = false;
+    let primary_id = skey.primary_key.legacy_key_id().to_string();
+    let mut target_fpr_for_pwd = skey.primary_key.fingerprint().to_string();
+
+    // Helper closure to check if a recipient ID is the special "anonymous" ID
+    let is_anonymous = |id: &str| id == "0000000000000000";
+
+    if recipients
+        .iter()
+        .any(|r| r.key_id == primary_id || is_anonymous(&r.key_id))
+        && matches!(skey.primary_key.secret_params(), SecretParams::Encrypted(_))
+    {
+        needs_password = true;
+    }
+
+    if !needs_password {
+        for subkey in &skey.secret_subkeys {
+            let subkey_id = subkey.key.legacy_key_id().to_string();
+            if recipients
+                .iter()
+                .any(|r| r.key_id == subkey_id || is_anonymous(&r.key_id))
+                && matches!(subkey.key.secret_params(), SecretParams::Encrypted(_))
+            {
+                needs_password = true;
+                target_fpr_for_pwd = subkey.key.fingerprint().to_string(); // Use specific subkey FPR for prompt
+                break;
+            }
+        }
+    }
+
+    let mut password = String::new();
+
+    // Fetch password dynamically if the key is locked
+    if needs_password {
+        password = fetch_password_internal(
+            channel,
+            &target_fpr_for_pwd,
+            "Decryption & Verification",
+            fetch_pwd_cb,
+            free_cb, // Passing the shared free callback
+        )?;
+    } else {
+        debug!("Target secret key is unlocked. Bypassing password callback.");
+    }
+
+    // 4. Decrypt outer layer
     let pwd_fn = Password::from(password.as_bytes());
     let mut decrypted = parsed_message
         .decrypt(&pwd_fn, &skey)
         .map_err(|_| GfrStatus::ErrorInternal)?;
 
     // Update recipients
-    let primary_id = skey.primary_key.fingerprint().to_string();
     let subkey_ids: Vec<String> = skey
         .secret_subkeys
         .iter()
         .map(|s| s.key.fingerprint().to_string())
         .collect();
+
     for rec in &mut recipients {
         if rec.key_id == primary_id || subkey_ids.contains(&rec.key_id) {
             rec.status = GfrRecipientStatus::Success;
         }
     }
 
-    // 4. Decompress if necessary
+    // 5. Decompress if necessary
     if decrypted.is_compressed() {
         decrypted = decrypted
             .decompress()
             .map_err(|_| GfrStatus::ErrorInternal)?;
     }
 
-    // 5. Extract filename from headers BEFORE consuming payload
+    // 6. Extract filename from headers BEFORE consuming payload
     let mut filename = String::new();
     if let Some(header) = decrypted.literal_data_header() {
         filename = String::from_utf8_lossy(header.file_name()).to_string();
@@ -1166,14 +1268,14 @@ pub fn decrypt_and_verify_internal(
 
     let is_signed = decrypted.is_signed();
 
-    // 6. !!! CRITICAL STEP !!!
+    // 7. !!! CRITICAL STEP !!!
     // You MUST consume the payload first! This forces the stream reader to reach
     // the end of the message and parse the trailing Signature packets.
     let payload = decrypted
         .as_data_vec()
         .map_err(|_| GfrStatus::ErrorInternal)?;
 
-    // 7. Directly extract parsed signatures from the Message enum
+    // 8. Directly extract parsed signatures from the Message enum
     let mut signatures = Vec::new();
     if let pgp::composed::Message::Signed { ref reader, .. } = decrypted {
         for i in 0..reader.num_signatures() {
@@ -1208,9 +1310,9 @@ pub fn decrypt_and_verify_internal(
         }
     }
 
-    // 8. Dynamically Fetch Public Keys via C++ Callback
+    // 9. Dynamically Fetch Public Keys via C++ Callback
     let mut certs = Vec::new();
-    if let Some(cb) = fetch_cb {
+    if let Some(cb) = fetch_pubkey_cb {
         for sig in &signatures {
             let c_fpr = std::ffi::CString::new(sig.fpr.clone()).unwrap_or_default();
             let c_key_block = cb(c_fpr.as_ptr(), user_data);
@@ -1221,14 +1323,16 @@ pub fn decrypt_and_verify_internal(
                         certs.push(cert);
                     }
                 }
+
+                // Use the shared free callback to release the public key string memory
                 if let Some(f_cb) = free_cb {
-                    f_cb(c_key_block as *mut c_void, user_data); // Free C++ allocated memory
+                    f_cb(c_key_block as *mut c_void, user_data);
                 }
             }
         }
     }
 
-    // 9. Verify Signatures with fetched certs
+    // 10. Verify Signatures with fetched certs
     let mut is_verified = false;
     if is_signed {
         for cert in &certs {
