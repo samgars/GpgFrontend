@@ -36,19 +36,30 @@ GpgSignResult::GpgSignResult(gpgme_sign_result_t r)
             }
           })) {}
 
+GpgSignResult::GpgSignResult(const GFSignResult& r)
+    : gf_result_ref_(QSharedPointer<GFSignResult>::create(r)) {}
+
 GpgSignResult::GpgSignResult() = default;
 
 GpgSignResult::~GpgSignResult() = default;
 
-auto GpgSignResult::IsGood() -> bool { return result_ref_ != nullptr; }
+auto GpgSignResult::IsGood() -> bool {
+  return result_ref_ != nullptr || gf_result_ref_ != nullptr;
+}
 
 auto GpgSignResult::GetRaw() -> gpgme_sign_result_t {
+  assert(gf_result_ref_ == nullptr);
   return result_ref_.get();
 }
 
 auto GpgSignResult::InvalidSigners()
-    -> QContainer<std::tuple<QString, GpgError>> {
-  QContainer<std::tuple<QString, GpgError>> result;
+    -> QContainer<std::pair<QString, GpgError>> {
+  QContainer<std::pair<QString, GpgError>> result;
+
+  if (gf_result_ref_ != nullptr) {
+    return result;
+  }
+
   for (auto* invalid_key = result_ref_->invalid_signers; invalid_key != nullptr;
        invalid_key = invalid_key->next) {
     try {
@@ -66,7 +77,47 @@ auto GpgSignResult::InvalidSigners()
 }
 
 auto GpgSignResult::HashAlgo() -> QString {
+  if (gf_result_ref_ != nullptr) {
+    return gf_result_ref_->signatures.empty()
+               ? ""
+               : gf_result_ref_->signatures.front().hash_algo;
+  }
   if (result_ref_->signatures == nullptr) return {};
   return gpgme_hash_algo_name(result_ref_->signatures->hash_algo);
+}
+
+auto GpgSignResult::Signatures() -> QContainer<GpgSignature> {
+  QContainer<GpgSignature> signatures;
+
+  if (gf_result_ref_ != nullptr) {
+    for (const auto& sig : gf_result_ref_->signatures) {
+      signatures.push_back(GpgSignature{sig});
+    }
+    return signatures;
+  }
+
+  auto* signature = result_ref_->signatures;
+  while (signature != nullptr) {
+    GFSignature sig;
+    sig.created_at = signature->timestamp;
+    sig.hash_algo = gpgme_hash_algo_name(signature->hash_algo);
+    sig.pub_algo = gpgme_pubkey_algo_name(signature->pubkey_algo);
+    sig.issuer_fpr = signature->fpr != nullptr ? signature->fpr : "";
+    sig.status = GFSignatureStatus::kVALID;
+
+    if ((signature->type & GPGME_SIG_MODE_NORMAL) != 0) {
+      sig.sig_type = "Normal";
+    } else if ((signature->type & GPGME_SIG_MODE_CLEAR) != 0) {
+      sig.sig_type = "Clear";
+    } else if ((signature->type & GPGME_SIG_MODE_DETACH) != 0) {
+      sig.sig_type = "Detach";
+    } else {
+      sig.sig_type = "Unknown";
+    }
+
+    signatures.push_back(GpgSignature{sig});
+    signature = signature->next;
+  }
+  return signatures;
 }
 }  // namespace GpgFrontend

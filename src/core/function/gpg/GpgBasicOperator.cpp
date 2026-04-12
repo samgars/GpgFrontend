@@ -563,8 +563,6 @@ auto SignRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& signers,
   }
 
   QByteArray name_utf8;
-  uint8_t* c_out_data = nullptr;
-  size_t c_out_len = 0;
   Rust::GfrSignMode rs_mode;
 
   if (mode == GPGME_SIG_MODE_DETACH) {
@@ -575,27 +573,63 @@ auto SignRpgpImpl(GpgContext& ctx, const GpgAbstractKeyPtrList& signers,
     rs_mode = Rust::GfrSignMode::Inline;
   }
 
+  Rust::GfrSignResultC sign_result;
+
   auto status = Rust::gfr_crypto_sign_data(
       name_utf8.constData(), reinterpret_cast<const uint8_t*>(in_buffer.Data()),
       in_buffer.Size(), c_skeys.data(), c_pwds.data(), c_skeys.size(), rs_mode,
-      ascii, &c_out_data, &c_out_len);
+      ascii, &sign_result);
 
-  if (status != Rust::GfrStatus::Success) {
+  if (status != Rust::GfrStatus::Success || sign_result.data == nullptr) {
     LOG_E() << "Rust FFI multi-signature failed with status: "
             << static_cast<int>(status);
     return GPG_ERR_GENERAL;
   }
 
-  if ((c_out_data != nullptr) && c_out_len > 0) {
-    data_object->Swap({
-        GpgSignResult(),
-        GFBuffer(reinterpret_cast<const char*>(c_out_data), c_out_len),
+  GFSignResult result;
+  result.signatures.reserve(sign_result.signature_count);
+  for (size_t i = 0; i < sign_result.signature_count; ++i) {
+    const auto& sig = sign_result.signatures[i];
+    GFSignatureStatus sig_status;
+
+    switch (sig.status) {
+      case Rust::GfrSignatureStatus::Valid:
+        sig_status = GFSignatureStatus::kVALID;
+        break;
+      case Rust::GfrSignatureStatus::BadSignature:
+        sig_status = GFSignatureStatus::kBAD_SIGNATURE;
+        break;
+      case Rust::GfrSignatureStatus::NoKey:
+        sig_status = GFSignatureStatus::kNO_KEY;
+        break;
+      default:
+        sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
+        break;
+    }
+
+    LOG_D() << "Created signature for issuer "
+            << QString::fromUtf8(sig.issuer_fpr).toUpper()
+            << " with status: " << static_cast<int>(sig_status)
+            << ", pub_algo: " << sig.pub_algo
+            << ", hash_algo: " << sig.hash_algo;
+
+    result.signatures.push_back({
+        QString::fromUtf8(sig.issuer_fpr).toUpper(),
+        sig_status,
+        sig.created_at,
+        sig.pub_algo,
+        sig.hash_algo,
     });
-    Rust::gfr_crypto_free_buffer(c_out_data, c_out_len);
-  } else {
-    LOG_E() << "Rust FFI multi-signature returned no data.";
-    return GPG_ERR_GENERAL;
   }
+
+  result.data = GFBuffer(reinterpret_cast<const char*>(sign_result.data),
+                         sign_result.data_len);
+
+  Rust::gfr_crypto_free_sign_result(&sign_result);
+  data_object->Swap({
+      GpgSignResult(result),
+      result.data,
+  });
 
   return GPG_ERR_NO_ERROR;
 }

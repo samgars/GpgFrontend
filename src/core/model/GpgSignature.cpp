@@ -157,4 +157,11 @@ auto GpgSignature::GetFingerprint() const -> QString {
   return signature_ref_->fpr != nullptr ? signature_ref_->fpr : "";
 }
 
+[[nodiscard]] auto GpgSignature::GetSigType() const -> QString {
+  if (gf_signature_ref_ != nullptr) {
+    return gf_signature_ref_->sig_type;
+  }
+  return {};
+}
+
 }  // namespace GpgFrontend

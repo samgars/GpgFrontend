@@ -95,6 +95,13 @@ class GF_CORE_EXPORT GpgSignature {
   [[nodiscard]] auto GetFingerprint() const -> QString;
 
   /**
+   * @brief
+   *
+   * @return QString
+   */
+  [[nodiscard]] auto GetSigType() const -> QString;
+
+  /**
    * @brief Construct a new Gpg Signature object
    *
    */
@@ -113,6 +120,11 @@ class GF_CORE_EXPORT GpgSignature {
    */
   explicit GpgSignature(gpgme_signature_t sig);
 
+  /**
+   * @brief Construct a new Gpg Signature object
+   *
+   * @param gf_sig
+   */
   explicit GpgSignature(const GFSignature &gf_sig);
 
   /**

@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "core/model/GFBuffer.h"
 #include "core/typedef/CoreTypedef.h"
 
 namespace GpgFrontend {
@@ -104,6 +105,12 @@ struct GFSignature {
   uint32_t created_at;
   QString pub_algo;
   QString hash_algo;
+  QString sig_type;
+};
+
+struct GFSignResult {
+  GFBuffer data;
+  QContainer<GFSignature> signatures;
 };
 
 struct GFVerifyResult {

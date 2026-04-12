@@ -28,6 +28,7 @@
 
 #pragma once
 
+#include "core/model/GpgSignature.h"
 #include "core/typedef/GpgTypedef.h"
 
 namespace GpgFrontend {
@@ -40,9 +41,13 @@ class GF_CORE_EXPORT GpgSignResult {
 
   auto HashAlgo() -> QString;
 
-  auto InvalidSigners() -> QContainer<std::tuple<QString, GpgError>>;
+  auto Signatures() -> QContainer<GpgSignature>;
+
+  auto InvalidSigners() -> QContainer<std::pair<QString, GpgError>>;
 
   explicit GpgSignResult(gpgme_sign_result_t);
+
+  explicit GpgSignResult(const GFSignResult&);
 
   GpgSignResult();
 
@@ -50,5 +55,6 @@ class GF_CORE_EXPORT GpgSignResult {
 
  private:
   QSharedPointer<struct _gpgme_op_sign_result> result_ref_ = nullptr;  ///<
+  QSharedPointer<struct GFSignResult> gf_result_ref_ = nullptr;        ///<
 };
 }  // namespace GpgFrontend
