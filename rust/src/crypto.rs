@@ -193,34 +193,8 @@ pub fn decrypt_internal(
 }
 
 pub fn get_message_recipients_internal(data: &[u8]) -> Result<String, GfrStatus> {
-    let mut key_ids = Vec::new();
-
-    // 1. Try to un-armor the data
-    let mut dearmored = Vec::new();
-    let mut dearmor_stream = Dearmor::new(Cursor::new(data));
-
-    // Attempt to read. If it fails or finds no armor headers, 'dearmored' remains empty
-    let _ = dearmor_stream.read_to_end(&mut dearmored);
-
-    // If it's empty, it means the input is likely already binary (not ASCII armored)
-    let payload = if dearmored.is_empty() {
-        data
-    } else {
-        &dearmored
-    };
-
-    // 2. Parse the PGP packets sequentially
-    let parser = PacketParser::new(Cursor::new(payload));
-
-    for packet_result in parser {
-        if let Ok(Packet::PublicKeyEncryptedSessionKey(pkesk)) = packet_result {
-            // Safely unwrap the Result returned by pkesk.id()
-            if let Ok(id) = pkesk.id() {
-                // Now `id` is a reference to a KeyId, which can be safely converted to a String
-                key_ids.push(id.to_string());
-            }
-        }
-    }
+    let recipients = sniff_recipients(data);
+    let key_ids: Vec<String> = recipients.iter().map(|r| r.key_id.clone()).collect();
 
     if key_ids.is_empty() {
         return Err(GfrStatus::ErrorInvalidInput); // Not a valid encrypted message
