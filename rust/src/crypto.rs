@@ -1,13 +1,14 @@
 use std::io::{Cursor, Read};
 
-use crate::types::{GfrSignMode, GfrStatus};
+use crate::types::{GfrSignMode, GfrSignatureStatus, GfrStatus};
+use log::debug;
 use pgp::{
     armor::Dearmor,
     composed::{
         ArmorOptions, CleartextSignedMessage, Deserializable, DetachedSignature, Message,
         MessageBuilder, SignedPublicKey, SignedSecretKey,
     },
-    crypto::{hash::HashAlgorithm, sym::SymmetricKeyAlgorithm},
+    crypto::{hash::HashAlgorithm, public_key::PublicKeyAlgorithm, sym::SymmetricKeyAlgorithm},
     packet::{Packet, PacketParser},
     ser::Serialize,
     types::{KeyDetails, Password},
@@ -294,9 +295,9 @@ pub fn sign_internal(
                         ) {
                             if ascii_armor {
                                 let armored = sig
-                                    .to_armored_string(None.into())
+                                    .to_armored_bytes(None.into())
                                     .map_err(|_| GfrStatus::ErrorArmorFailed)?;
-                                return Ok(armored.into_bytes());
+                                return Ok(armored);
                             } else {
                                 let raw = sig.to_bytes().map_err(|_| GfrStatus::ErrorInternal)?;
                                 return Ok(raw);
@@ -316,9 +317,9 @@ pub fn sign_internal(
                     ) {
                         if ascii_armor {
                             let armored = sig
-                                .to_armored_string(None.into())
+                                .to_armored_bytes(None.into())
                                 .map_err(|_| GfrStatus::ErrorArmorFailed)?;
-                            return Ok(armored.into_bytes());
+                            return Ok(armored);
                         } else {
                             let raw = sig.to_bytes().map_err(|_| GfrStatus::ErrorInternal)?;
                             return Ok(raw);
@@ -330,4 +331,364 @@ pub fn sign_internal(
             Err(GfrStatus::ErrorInvalidInput)
         }
     }
+}
+
+pub struct VerifyResultInternal {
+    pub data: Vec<u8>,
+    pub is_verified: bool,
+    pub signatures: Vec<SignatureResultInternal>,
+}
+
+pub struct SignatureResultInternal {
+    pub fpr: String,
+    pub status: GfrSignatureStatus,
+    pub created_at: u32,
+    pub pub_algo: String,
+    pub hash_algo: String,
+}
+
+fn cert_contains_issuer(cert: &SignedPublicKey, issuer_hex: &str) -> bool {
+    if cert
+        .primary_key
+        .fingerprint()
+        .to_string()
+        .eq_ignore_ascii_case(issuer_hex)
+    {
+        return true;
+    }
+    for subkey in &cert.public_subkeys {
+        if subkey
+            .key
+            .fingerprint()
+            .to_string()
+            .eq_ignore_ascii_case(issuer_hex)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+pub fn algo_to_string_simple(algo: PublicKeyAlgorithm) -> String {
+    // Uses the derived Debug trait to get the variant name as a String
+    format!("{:?}", algo)
+}
+
+fn sniff_signatures(data: &[u8]) -> Vec<SignatureResultInternal> {
+    let mut results = Vec::new();
+    let mut dearmored = Vec::new();
+    let _ = Dearmor::new(Cursor::new(data)).read_to_end(&mut dearmored);
+    let payload = if dearmored.is_empty() {
+        data
+    } else {
+        &dearmored
+    };
+
+    let parser = PacketParser::new(Cursor::new(payload));
+    for packet_result in parser {
+        if let Ok(Packet::Signature(sig)) = packet_result {
+            for issuer in sig.issuer_fingerprint() {
+                let fpr = issuer.to_string();
+                let (hash_algo_id, pub_algo_id) = if let Some(config) = sig.config() {
+                    (
+                        config.hash_alg.to_string(),
+                        algo_to_string_simple(config.pub_alg),
+                    )
+                } else {
+                    (String::new(), String::new())
+                };
+                if !results
+                    .iter()
+                    .any(|r: &SignatureResultInternal| r.fpr == fpr)
+                {
+                    results.push(SignatureResultInternal {
+                        fpr: fpr,
+                        status: GfrSignatureStatus::NoKey,
+                        created_at: sig.created().map(|d| d.as_secs() as u32).unwrap_or(0),
+                        pub_algo: pub_algo_id,
+                        hash_algo: hash_algo_id,
+                    });
+                }
+            }
+        }
+    }
+    results
+}
+
+pub fn verify_internal(
+    data: &[u8],
+    sig_data: &[u8], // Used only for Detached mode
+    public_key_blocks: &[&str],
+    mode: GfrSignMode,
+) -> Result<VerifyResultInternal, GfrStatus> {
+    // 1. Parse candidate public keys
+    let mut certs = Vec::with_capacity(public_key_blocks.len());
+    for block in public_key_blocks {
+        if let Ok((cert, _)) = SignedPublicKey::from_string(block) {
+            certs.push(cert);
+        }
+    }
+
+    debug!(
+        "Parsed {} public keys for verification, mode: {:?}",
+        certs.len(),
+        mode
+    );
+
+    match mode {
+        // ---------------------------------------------------------
+        // MODE 0: INLINE SIGNATURE
+        // ---------------------------------------------------------
+        GfrSignMode::Inline => {
+            let mut msg = if let Ok((m, _)) = Message::from_armor(Cursor::new(data)) {
+                m
+            } else if let Ok(m) = Message::from_bytes(data) {
+                m
+            } else {
+                return Err(GfrStatus::ErrorInvalidInput);
+            };
+
+            // try to sniff signatures from the message packets first, to build
+            // an initial list of issuers and their statuses
+            let mut signatures = sniff_signatures(data);
+            let mut is_verified = false;
+
+            for cert in &certs {
+                // if verification succeeds with this cert, mark all matching
+                // issuers as Valid; if it fails, mark them as BadSignature (but
+                // only if we previously marked them as NoKey)
+                if msg.verify(cert).is_ok() {
+                    is_verified = true;
+                    let mut found = false;
+
+                    // Update the status of all signatures that match this
+                    // cert's primary key or any of its subkeys
+                    for sig in &mut signatures {
+                        if cert_contains_issuer(cert, &sig.fpr) {
+                            sig.status = GfrSignatureStatus::Valid;
+                            found = true;
+                        }
+                    }
+
+                    // If we found a matching issuer in the signatures, we would
+                    // have updated its status to Valid.
+                    if !found {
+                        let fpr: String = cert.primary_key.fingerprint().to_string();
+                        signatures.push(SignatureResultInternal {
+                            fpr,
+                            status: GfrSignatureStatus::Valid,
+                            created_at: 0,
+                            pub_algo: "None".to_string(),
+                            hash_algo: "None".to_string(),
+                        });
+                    }
+                } else {
+                    for sig in &mut signatures {
+                        if cert_contains_issuer(cert, &sig.fpr)
+                            && sig.status == GfrSignatureStatus::NoKey
+                        {
+                            sig.status = GfrSignatureStatus::BadSignature;
+                        }
+                    }
+                }
+            }
+
+            let clear_data = msg.as_data_vec().map_err(|_| GfrStatus::ErrorInternal)?;
+            Ok(VerifyResultInternal {
+                data: clear_data,
+                is_verified,
+                signatures,
+            })
+        }
+
+        // ---------------------------------------------------------
+        // MODE 1: CLEARTEXT SIGNATURE
+        // ---------------------------------------------------------
+        GfrSignMode::ClearText => {
+            debug!("Attempting to parse cleartext signed message for verification");
+
+            let text_str = std::str::from_utf8(data).map_err(|_| GfrStatus::ErrorInvalidInput)?;
+            let (msg, _) = CleartextSignedMessage::from_string(text_str)
+                .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+
+            debug!(
+                "Parsed cleartext signed message with {} signatures",
+                msg.signatures().len()
+            );
+
+            let mut signatures = Vec::new();
+            for sig in msg.signatures().into_iter() {
+                for issuer in sig.issuer_fingerprint() {
+                    let fpr: String = issuer.to_string();
+                    let (hash_algo_id, pub_algo_id) = if let Some(config) = sig.config() {
+                        (
+                            config.hash_alg.to_string(),
+                            algo_to_string_simple(config.pub_alg),
+                        )
+                    } else {
+                        (String::new(), String::new())
+                    };
+                    if !signatures
+                        .iter()
+                        .any(|r: &SignatureResultInternal| r.fpr == fpr)
+                    {
+                        signatures.push(SignatureResultInternal {
+                            fpr,
+                            status: GfrSignatureStatus::NoKey,
+                            created_at: sig.created().map(|d| d.as_secs() as u32).unwrap_or(0),
+                            pub_algo: pub_algo_id,
+                            hash_algo: hash_algo_id,
+                        });
+                    }
+                }
+            }
+
+            let mut is_verified = false;
+            for cert in &certs {
+                let is_cert_valid = msg.verify(cert).is_ok();
+                for sig in &mut signatures {
+                    if cert_contains_issuer(cert, &sig.fpr) {
+                        sig.status = if is_cert_valid {
+                            is_verified = true;
+                            GfrSignatureStatus::Valid
+                        } else {
+                            GfrSignatureStatus::BadSignature
+                        };
+                    }
+                }
+            }
+
+            let clear_data = msg
+                .to_armored_bytes(ArmorOptions::default())
+                .unwrap_or_default();
+            Ok(VerifyResultInternal {
+                data: clear_data,
+                is_verified,
+                signatures,
+            })
+        }
+
+        // ---------------------------------------------------------
+        // MODE 2: DETACHED SIGNATURE
+        // ---------------------------------------------------------
+        GfrSignMode::Detached => {
+            if sig_data.is_empty() {
+                return Err(GfrStatus::ErrorInvalidInput);
+            }
+
+            let sig_msg =
+                if let Ok((s, _)) = DetachedSignature::from_armor_single(Cursor::new(sig_data)) {
+                    s
+                } else if let Ok(s) = DetachedSignature::from_bytes(sig_data) {
+                    s
+                } else {
+                    return Err(GfrStatus::ErrorInvalidInput);
+                };
+
+            // try to sniff signatures from the signature packets first, to build
+            // an initial list of issuers and their statuses
+            let mut signatures = sniff_signatures(sig_data);
+            let mut is_verified = false;
+
+            for cert in &certs {
+                let is_cert_valid = sig_msg.verify(cert, data).is_ok();
+                for sig in &mut signatures {
+                    if cert_contains_issuer(cert, &sig.fpr) {
+                        sig.status = if is_cert_valid {
+                            is_verified = true;
+                            GfrSignatureStatus::Valid
+                        } else {
+                            GfrSignatureStatus::BadSignature
+                        };
+                    }
+                }
+            }
+
+            // Detached verification doesn't extract plaintext, only confirms status
+            Ok(VerifyResultInternal {
+                data: Vec::new(),
+                is_verified,
+                signatures,
+            })
+        }
+    }
+}
+
+pub fn get_signature_issuers_internal(data: &[u8]) -> Result<(String, String), GfrStatus> {
+    let mut recipients = Vec::new();
+    let mut issuers = Vec::new();
+
+    // 1. First, attempt to parse as a Cleartext Signed Message
+    if let Ok(text_str) = std::str::from_utf8(data) {
+        if let Ok((msg, _)) = CleartextSignedMessage::from_string(text_str) {
+            for sig in msg.signatures().into_iter() {
+                for issuer in sig.issuer_key_id() {
+                    issuers.push(issuer.to_string());
+                }
+            }
+            // Cleartext messages only contain signatures, not encrypted recipients
+            issuers.sort();
+            issuers.dedup();
+            return Ok((recipients.join(","), issuers.join(",")));
+        }
+    }
+
+    // 2. Un-armor if necessary for standard encrypted or detached/inline signed data
+    let mut dearmored = Vec::new();
+    let _ = Dearmor::new(Cursor::new(data)).read_to_end(&mut dearmored);
+
+    let payload = if dearmored.is_empty() {
+        data
+    } else {
+        &dearmored
+    };
+
+    // 3. Parse standard PGP packets
+    let parser = PacketParser::new(Cursor::new(payload));
+
+    for packet_result in parser {
+        if let Ok(packet) = packet_result {
+            match packet {
+                // Sniff Recipient (for Encryption)
+                Packet::PublicKeyEncryptedSessionKey(pkesk) => {
+                    if let Ok(id) = pkesk.id() {
+                        recipients.push(id.to_string());
+                    }
+                }
+                // Sniff Signer from OnePassSignature (Appears at the start of inline signatures)
+                Packet::OnePassSignature(ops) => {
+                    // Match on the version-specific enum to extract the identifier
+                    match ops.version_specific() {
+                        pgp::packet::OpsVersionSpecific::V3 { key_id } => {
+                            // V3 OPS directly contains a KeyId
+                            issuers.push(key_id.to_string());
+                        }
+                        pgp::packet::OpsVersionSpecific::V6 { fingerprint, .. } => {
+                            // V6 OPS contains a 32-byte fingerprint. Format it safely as an uppercase HEX string.
+                            let fp_str: String =
+                                fingerprint.iter().map(|b| format!("{:02X}", b)).collect();
+                            issuers.push(fp_str);
+                        }
+                        _ => {}
+                    }
+                }
+                // Sniff Signer from Signature packet (Used in detached signatures or end of inline)
+                Packet::Signature(sig) => {
+                    for issuer in sig.issuer_key_id() {
+                        issuers.push(issuer.to_string());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // 4. Deduplicate the collected IDs to avoid repeating the same Key ID
+    recipients.sort();
+    recipients.dedup();
+
+    issuers.sort();
+    issuers.dedup();
+
+    Ok((recipients.join(","), issuers.join(",")))
 }

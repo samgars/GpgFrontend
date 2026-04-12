@@ -1,6 +1,10 @@
+use crate::crypto::get_signature_issuers_internal;
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
-use crate::types::{GfrKeyConfig, GfrKeyMetadataC, GfrSignMode, GfrStatus, GfrSubkeyMetadataC};
+use crate::types::{
+    GfrKeyConfig, GfrKeyMetadataC, GfrSignMode, GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC,
+    GfrVerifyResultC,
+};
 use log::LevelFilter;
 use std::slice;
 use std::{
@@ -479,5 +483,167 @@ pub extern "C" fn gfr_crypto_sign_data(
         Ok(Ok(_)) => GfrStatus::Success,
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_verify_data(
+    in_data: *const u8,
+    in_len: usize,
+    sig_data: *const u8, // Only used if mode == 2 (Detached)
+    sig_len: usize,      // Only used if mode == 2 (Detached)
+    pub_keys: *const *const c_char,
+    pub_keys_count: usize,
+    mode: GfrSignMode,
+    out_result: *mut GfrVerifyResultC, // Output parameter for the comprehensive result
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        if in_data.is_null() || out_result.is_null() {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
+        let sig_slice = if !sig_data.is_null() && sig_len > 0 {
+            unsafe { slice::from_raw_parts(sig_data, sig_len) }
+        } else {
+            &[]
+        };
+
+        let mut key_blocks = Vec::with_capacity(pub_keys_count);
+        if !pub_keys.is_null() && pub_keys_count > 0 {
+            unsafe {
+                let keys_slice = slice::from_raw_parts(pub_keys, pub_keys_count);
+                for &key_ptr in keys_slice {
+                    if key_ptr.is_null() {
+                        return Err(GfrStatus::ErrorInvalidInput);
+                    }
+                    let key_str = CStr::from_ptr(key_ptr)
+                        .to_str()
+                        .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+                    key_blocks.push(key_str);
+                }
+            }
+        }
+
+        // Call the updated internal function which now returns VerifyResultInternal
+        let mut internal_result =
+            crate::crypto::verify_internal(data_slice, sig_slice, &key_blocks, mode)?;
+
+        // 1. Process the extracted payload (data)
+        internal_result.data.shrink_to_fit();
+        let data_ptr = internal_result.data.as_mut_ptr();
+        let data_len = internal_result.data.len();
+        std::mem::forget(internal_result.data); // Leak payload to C
+
+        // 2. Process the signatures array
+        let mut c_signatures = Vec::with_capacity(internal_result.signatures.len());
+        for sig in internal_result.signatures {
+            let c_fpr = CString::new(sig.fpr).unwrap_or_default().into_raw();
+            let c_pub_algo = CString::new(sig.pub_algo).unwrap_or_default().into_raw();
+            let c_hash_algo = CString::new(sig.hash_algo).unwrap_or_default().into_raw();
+
+            c_signatures.push(GfrSignatureResultC {
+                issuer_fpr: c_fpr,
+                status: sig.status,
+                created_at: sig.created_at,
+                pub_algo: c_pub_algo,
+                hash_algo: c_hash_algo,
+            });
+        }
+
+        let mut boxed_sigs = c_signatures.into_boxed_slice();
+        let sigs_ptr = boxed_sigs.as_mut_ptr();
+        let sigs_count = boxed_sigs.len();
+        std::mem::forget(boxed_sigs); // Leak array to C
+
+        // 3. Populate the output struct safely
+        unsafe {
+            (*out_result).data = data_ptr;
+            (*out_result).data_len = data_len;
+            (*out_result).signatures = sigs_ptr;
+            (*out_result).signature_count = sigs_count;
+            (*out_result).is_verified = internal_result.is_verified;
+        }
+
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_get_signature_issuers(
+    in_data: *const u8,
+    in_len: usize,
+    out_issuers: *mut *mut c_char,
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        if in_data.is_null() || out_issuers.is_null() {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        let data_slice = unsafe { std::slice::from_raw_parts(in_data, in_len) };
+        let (_, issuers_csv) = get_signature_issuers_internal(data_slice)?;
+
+        let c_str = CString::new(issuers_csv).map_err(|_| GfrStatus::ErrorInternal)?;
+        unsafe {
+            *out_issuers = c_str.into_raw();
+        }
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+/// Free the verification result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_verify_result(result: *mut GfrVerifyResultC) {
+    if result.is_null() {
+        return;
+    }
+
+    unsafe {
+        // 1. Free the extracted data buffer
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+        }
+
+        // 2. Free the signatures array and its internal strings
+        if !(*result).signatures.is_null() && (*result).signature_count > 0 {
+            let sigs_slice =
+                std::slice::from_raw_parts_mut((*result).signatures, (*result).signature_count);
+
+            for sig in sigs_slice.iter_mut() {
+                if !sig.issuer_fpr.is_null() {
+                    drop(CString::from_raw(sig.issuer_fpr));
+                }
+                if !sig.pub_algo.is_null() {
+                    drop(CString::from_raw(sig.pub_algo));
+                }
+                if !sig.hash_algo.is_null() {
+                    drop(CString::from_raw(sig.hash_algo));
+                }
+            }
+
+            // Free the array itself
+            let array_ptr =
+                std::ptr::slice_from_raw_parts_mut((*result).signatures, (*result).signature_count);
+            drop(Box::from_raw(array_ptr));
+        }
+
+        // Zero out the struct to prevent double-free mistakes from the C side
+        (*result).data = std::ptr::null_mut();
+        (*result).data_len = 0;
+        (*result).signatures = std::ptr::null_mut();
+        (*result).signature_count = 0;
+        (*result).is_verified = false;
     }
 }

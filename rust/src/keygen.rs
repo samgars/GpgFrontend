@@ -1,5 +1,5 @@
 use crate::types::{GfrKeyAlgo, GfrKeyConfig, GfrStatus};
-use log::{debug, error, info};
+use log::{debug, error};
 use pgp::{
     composed::{
         ArmorOptions, EncryptionCaps, KeyType, SecretKeyParamsBuilder, SignedPublicKey,

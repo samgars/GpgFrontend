@@ -82,3 +82,38 @@ pub struct GfrKeyMetadataC {
     pub subkeys: *mut GfrSubkeyMetadataC,
     pub subkey_count: usize,
 }
+
+/// Status of an individual signature
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GfrSignatureStatus {
+    Valid = 0,        // The signature matches the payload and the public key
+    BadSignature = 1, // The signature is mathematically invalid (payload tampered or wrong key)
+    NoKey = 2,        // We don't have the public key required to verify this signature
+    UnknownError = 3, // Other parsing or internal errors related to this signature
+}
+
+/// Verification result for a single signature found in the message
+#[repr(C)]
+pub struct GfrSignatureResultC {
+    pub issuer_fpr: *mut c_char, // The Fingerprint of the signer (if available, otherwise null)
+    pub status: GfrSignatureStatus, // The verification status for this specific signature
+    pub created_at: u32,         // Signature creation timestamp (Unix epoch)
+    pub pub_algo: *mut c_char,   // The algorithm used for this signature (if available)
+    pub hash_algo: *mut c_char,  // The hash algorithm used for this signature (if available)
+}
+
+/// The comprehensive result of a verification operation
+#[repr(C)]
+pub struct GfrVerifyResultC {
+    // The underlying data (For ClearText/Inline, this is the extracted payload. For Detached, this might be null)
+    pub data: *mut u8,
+    pub data_len: usize,
+
+    // The list of signatures found and evaluated
+    pub signatures: *mut GfrSignatureResultC,
+    pub signature_count: usize,
+
+    // Helper flag: true if AT LEAST ONE signature is perfectly Valid
+    pub is_verified: bool,
+}
