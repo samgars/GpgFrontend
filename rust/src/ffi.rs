@@ -2,8 +2,9 @@ use crate::crypto::get_signature_issuers_internal;
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
-    GfrDecryptResultC, GfrKeyConfig, GfrKeyMetadataC, GfrRecipientResultC, GfrSignMode,
-    GfrSignResultC, GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC, GfrVerifyResultC,
+    GfrDecryptResultC, GfrEncryptResultC, GfrInvalidRecipientC, GfrKeyConfig, GfrKeyMetadataC,
+    GfrRecipientResultC, GfrSignMode, GfrSignResultC, GfrSignatureResultC, GfrStatus,
+    GfrSubkeyMetadataC, GfrVerifyResultC,
 };
 use log::LevelFilter;
 use std::slice;
@@ -251,19 +252,18 @@ pub extern "C" fn gfr_crypto_extract_public_key(
 }
 
 #[unsafe(no_mangle)]
-pub extern "C" fn gfr_crypto_encrypt_text(
+pub extern "C" fn gfr_crypto_encrypt_data(
     name: *const c_char,
     in_data: *const u8,
     in_len: usize,
     pub_keys: *const *const c_char,
     pub_keys_count: usize,
     ascii: bool,
-    out_data: *mut *mut u8,
-    out_len: *mut usize,
+    out_result: *mut GfrEncryptResultC,
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<(), GfrStatus> {
         // Null pointer checks
-        if name.is_null() || in_data.is_null() || pub_keys.is_null() || out_data.is_null() {
+        if name.is_null() || in_data.is_null() || pub_keys.is_null() || out_result.is_null() {
             return Err(GfrStatus::ErrorInvalidInput);
         }
 
@@ -289,19 +289,36 @@ pub extern "C" fn gfr_crypto_encrypt_text(
             }
         }
 
-        // Perform the encryption
-        let mut encrypted_bytes =
-            crate::crypto::encrypt_text_internal(name_str, data_slice, &key_blocks, ascii)?;
+        // Perform the encryption using the updated internal function
+        let mut internal_result =
+            crate::crypto::encrypt_internal(name_str, data_slice, &key_blocks, ascii)?;
 
-        // 4. Prepare output: Allocate memory for the encrypted data and transfer ownership to C++
-        encrypted_bytes.shrink_to_fit();
-        let ptr = encrypted_bytes.as_mut_ptr();
-        let len = encrypted_bytes.len();
-        std::mem::forget(encrypted_bytes);
+        // 1. Process output payload data
+        internal_result.data.shrink_to_fit();
+        let data_ptr = internal_result.data.as_mut_ptr();
+        let data_len = internal_result.data.len();
+        std::mem::forget(internal_result.data); // Leak payload to C
 
+        // 2. Process invalid recipients array
+        let mut c_invalid_recs = Vec::with_capacity(internal_result.invalid_recipients.len());
+        for rec in internal_result.invalid_recipients {
+            c_invalid_recs.push(GfrInvalidRecipientC {
+                fpr: CString::new(rec.fpr).unwrap_or_default().into_raw(),
+                reason: rec.reason,
+            });
+        }
+
+        let mut boxed_recs = c_invalid_recs.into_boxed_slice();
+        let recs_ptr = boxed_recs.as_mut_ptr();
+        let recs_count = boxed_recs.len();
+        std::mem::forget(boxed_recs); // Leak array to C
+
+        // 3. Populate the output struct safely
         unsafe {
-            *out_data = ptr;
-            *out_len = len;
+            (*out_result).data = data_ptr;
+            (*out_result).data_len = data_len;
+            (*out_result).invalid_recipients = recs_ptr;
+            (*out_result).invalid_recipient_count = recs_count;
         }
 
         Ok(())
@@ -311,6 +328,48 @@ pub extern "C" fn gfr_crypto_encrypt_text(
         Ok(Ok(_)) => GfrStatus::Success,
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+/// Free the encryption result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_encrypt_result(result: *mut GfrEncryptResultC) {
+    if result.is_null() {
+        return;
+    }
+
+    unsafe {
+        // 1. Free the encrypted data buffer
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+        }
+
+        // 2. Free the invalid recipients array and its internal strings
+        if !(*result).invalid_recipients.is_null() && (*result).invalid_recipient_count > 0 {
+            let recs_slice = std::slice::from_raw_parts_mut(
+                (*result).invalid_recipients,
+                (*result).invalid_recipient_count,
+            );
+
+            for rec in recs_slice.iter_mut() {
+                if !rec.fpr.is_null() {
+                    drop(CString::from_raw(rec.fpr));
+                }
+            }
+
+            // Free the array itself
+            let array_ptr = std::ptr::slice_from_raw_parts_mut(
+                (*result).invalid_recipients,
+                (*result).invalid_recipient_count,
+            );
+            drop(Box::from_raw(array_ptr));
+        }
+
+        // Zero out the struct to prevent double-free mistakes from the C side
+        (*result).data = std::ptr::null_mut();
+        (*result).data_len = 0;
+        (*result).invalid_recipients = std::ptr::null_mut();
+        (*result).invalid_recipient_count = 0;
     }
 }
 

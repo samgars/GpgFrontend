@@ -10,6 +10,8 @@ pub enum GfrStatus {
     ErrorPasswordFailed = -3, // password setting failed
     ErrorArmorFailed = -4,  // conversion to ASCII Armor failed
     ErrorInternal = -5,     // internal conversion error (e.g., CString contains \0)
+    ErrorNoKey = -6,        // required key not found for operation
+    ErrorInvalidData = -7,  // data is not in expected format (e.g., not a valid OpenPGP message)
     ErrorPanic = -99,       // Rust internal panic
 }
 
@@ -117,6 +119,21 @@ pub struct GfrRecipientResultC {
     pub key_id: *mut c_char,
     pub pub_algo: *mut c_char,
     pub status: GfrRecipientStatus,
+}
+
+#[repr(C)]
+pub struct GfrInvalidRecipientC {
+    pub fpr: *mut c_char,
+    pub reason: GfrStatus,
+}
+
+// Result structure for the encryption operation
+#[repr(C)]
+pub struct GfrEncryptResultC {
+    pub data: *mut u8,
+    pub data_len: usize,
+    pub invalid_recipients: *mut GfrInvalidRecipientC,
+    pub invalid_recipient_count: usize,
 }
 
 #[repr(C)]

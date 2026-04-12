@@ -18,12 +18,22 @@ use pgp::{
 };
 use rand::thread_rng;
 
-pub fn encrypt_text_internal(
+pub struct InvalidRecipientInternal {
+    pub fpr: String,
+    pub reason: GfrStatus,
+}
+
+pub struct EncryptResultInternal {
+    pub data: Vec<u8>,
+    pub invalid_recipients: Vec<InvalidRecipientInternal>,
+}
+
+pub fn encrypt_internal(
     name: &str,
     data: &[u8],
     public_key_blocks: &[&str],
     ascii_armor: bool,
-) -> Result<Vec<u8>, GfrStatus> {
+) -> Result<EncryptResultInternal, GfrStatus> {
     let mut rng = thread_rng();
 
     // 1. Initialize the builder with SEIPDv1 and AES256
@@ -31,53 +41,75 @@ pub fn encrypt_text_internal(
         .seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
 
     let mut has_recipient = false;
+    let mut invalid_recipients = Vec::new();
 
     // 2. Iterate through all provided recipient public key blocks
     for block in public_key_blocks {
-        let (cert, _) =
-            SignedPublicKey::from_string(block).map_err(|_| GfrStatus::ErrorInvalidInput)?;
+        // Try parsing the block as a SignedPublicKey certificate
+        match SignedPublicKey::from_string(block) {
+            Ok((cert, _)) => {
+                let mut added_for_this_cert = false;
+                let fpr = cert.primary_key.fingerprint().to_string();
 
-        let mut added_for_this_cert = false;
+                // 3. Dynamically find a valid encryption subkey
+                for subkey in &cert.public_subkeys {
+                    if subkey.key.algorithm().can_encrypt() {
+                        if builder.encrypt_to_key(&mut rng, subkey).is_ok() {
+                            added_for_this_cert = true;
+                            has_recipient = true;
+                            break;
+                        }
+                    }
+                }
 
-        // 3. Dynamically find a valid encryption subkey
-        for subkey in &cert.public_subkeys {
-            if subkey.key.algorithm().can_encrypt() {
-                builder
-                    .encrypt_to_key(&mut rng, subkey)
-                    .map_err(|_| GfrStatus::ErrorInternal)?;
+                // Fallback to primary key if no encryption subkeys are found
+                if !added_for_this_cert && cert.primary_key.algorithm().can_encrypt() {
+                    if builder.encrypt_to_key(&mut rng, &cert.primary_key).is_ok() {
+                        added_for_this_cert = true;
+                        has_recipient = true;
+                    }
+                }
 
-                added_for_this_cert = true;
-                has_recipient = true;
-                break;
+                // if no valid encryption key is found for this certificate
+                if !added_for_this_cert {
+                    invalid_recipients.push(InvalidRecipientInternal {
+                        fpr,
+                        reason: GfrStatus::ErrorNoKey,
+                    });
+                }
             }
-        }
-
-        // Fallback to primary key if no encryption subkeys are found
-        if !added_for_this_cert && cert.primary_key.algorithm().can_encrypt() {
-            builder
-                .encrypt_to_key(&mut rng, &cert.primary_key)
-                .map_err(|_| GfrStatus::ErrorInternal)?;
-            has_recipient = true;
+            Err(_) => {
+                // if the block cannot be parsed as a valid PGP public key
+                invalid_recipients.push(InvalidRecipientInternal {
+                    fpr: String::from("Unknown"),
+                    reason: GfrStatus::ErrorInvalidData,
+                });
+            }
         }
     }
 
+    // if after processing all recipient blocks, we don't have any valid
+    // encryption keys, return an error
     if !has_recipient {
         return Err(GfrStatus::ErrorInvalidInput);
     }
 
-    // 4. If ASCII armor is requested, output armored string;
-    if ascii_armor {
-        let armored_str = builder
+    // 4. Generate the final output
+    let final_data = if ascii_armor {
+        builder
             .to_armored_string(&mut rng, ArmorOptions::default())
-            .map_err(|_| GfrStatus::ErrorArmorFailed)?;
-        return Ok(armored_str.as_bytes().to_vec());
-    }
+            .map_err(|_| GfrStatus::ErrorArmorFailed)?
+            .into_bytes()
+    } else {
+        builder
+            .to_vec(&mut rng)
+            .map_err(|_| GfrStatus::ErrorInternal)?
+    };
 
-    // 5. If not ASCII armor, output raw bytes and convert to String (may not be valid UTF-8)
-    let raw_str = builder
-        .to_vec(&mut rng)
-        .map_err(|_| GfrStatus::ErrorInternal)?;
-    Ok(raw_str)
+    Ok(EncryptResultInternal {
+        data: final_data,
+        invalid_recipients,
+    })
 }
 
 pub struct RecipientResultInternal {
