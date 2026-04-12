@@ -828,3 +828,155 @@ pub fn get_signature_issuers_internal(data: &[u8]) -> Result<(String, String), G
 
     Ok((recipients.join(","), issuers.join(",")))
 }
+
+// Internal struct combining both signatures created and invalid recipients skipped
+pub struct EncryptAndSignResultInternal {
+    pub data: Vec<u8>,
+    pub signatures: Vec<SignatureResultInternal>,
+    pub invalid_recipients: Vec<InvalidRecipientInternal>,
+}
+
+pub fn encrypt_and_sign_internal(
+    name: &str,
+    data: &[u8],
+    public_key_blocks: &[&str],
+    secret_key_blocks: &[&str],
+    passwords: &[&str],
+    ascii_armor: bool,
+) -> Result<EncryptAndSignResultInternal, GfrStatus> {
+    if secret_key_blocks.len() != passwords.len() || secret_key_blocks.is_empty() {
+        return Err(GfrStatus::ErrorInvalidInput);
+    }
+
+    let mut rng = thread_rng();
+
+    // 1. Initialize the builder with the plaintext payload
+    let mut builder = MessageBuilder::from_bytes(name.as_bytes().to_vec(), data.to_vec());
+
+    // 2. Process Signers FIRST (Signing must wrap the payload before encryption)
+    let mut parsed_skeys = Vec::with_capacity(secret_key_blocks.len());
+    for block in secret_key_blocks {
+        let (skey, _) =
+            SignedSecretKey::from_string(block).map_err(|_| GfrStatus::ErrorInvalidInput)?;
+        parsed_skeys.push(skey);
+    }
+
+    let mut created_signatures = Vec::new();
+    let current_time = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u32;
+
+    let mut record_sig = |fpr: String, algo: PublicKeyAlgorithm| {
+        created_signatures.push(SignatureResultInternal {
+            fpr,
+            status: GfrSignatureStatus::Valid,
+            created_at: current_time,
+            pub_algo: algo_to_string_simple(algo),
+            hash_algo: "SHA512".to_string(),
+            sig_type: GfrSignMode::Inline, // Encrypt+Sign is always Inline nested
+        });
+    };
+
+    let mut at_least_one_signer = false;
+    for i in 0..parsed_skeys.len() {
+        let skey = &parsed_skeys[i];
+        let mut added_for_this_key = false;
+
+        for subkey in &skey.secret_subkeys {
+            if subkey.key.algorithm().can_sign() {
+                let pwd_fn = Password::from(passwords[i].as_bytes());
+                builder.sign(&subkey.key, pwd_fn, HashAlgorithm::Sha512);
+                record_sig(subkey.key.fingerprint().to_string(), subkey.key.algorithm());
+                added_for_this_key = true;
+                at_least_one_signer = true;
+                break;
+            }
+        }
+
+        if !added_for_this_key && skey.primary_key.algorithm().can_sign() {
+            let fallback_pwd = Password::from(passwords[i].as_bytes());
+            builder.sign(&skey.primary_key, fallback_pwd, HashAlgorithm::Sha512);
+            record_sig(
+                skey.primary_key.fingerprint().to_string(),
+                skey.primary_key.algorithm(),
+            );
+            at_least_one_signer = true;
+        }
+    }
+
+    if !at_least_one_signer {
+        return Err(GfrStatus::ErrorInvalidInput); // Missing valid signing key
+    }
+
+    // 3. Transition the Builder into Encryption Mode
+    let mut enc_builder = builder.seipd_v1(&mut rng, SymmetricKeyAlgorithm::AES256);
+
+    // 4. Process Recipients
+    let mut has_recipient = false;
+    let mut invalid_recipients = Vec::new();
+
+    for block in public_key_blocks {
+        match SignedPublicKey::from_string(block) {
+            Ok((cert, _)) => {
+                let mut added_for_this_cert = false;
+                let fpr = cert.primary_key.fingerprint().to_string();
+
+                for subkey in &cert.public_subkeys {
+                    if subkey.key.algorithm().can_encrypt() {
+                        if enc_builder.encrypt_to_key(&mut rng, subkey).is_ok() {
+                            added_for_this_cert = true;
+                            has_recipient = true;
+                            break;
+                        }
+                    }
+                }
+
+                if !added_for_this_cert && cert.primary_key.algorithm().can_encrypt() {
+                    if enc_builder
+                        .encrypt_to_key(&mut rng, &cert.primary_key)
+                        .is_ok()
+                    {
+                        added_for_this_cert = true;
+                        has_recipient = true;
+                    }
+                }
+
+                if !added_for_this_cert {
+                    invalid_recipients.push(InvalidRecipientInternal {
+                        fpr,
+                        reason: GfrStatus::ErrorNoKey,
+                    });
+                }
+            }
+            Err(_) => {
+                invalid_recipients.push(InvalidRecipientInternal {
+                    fpr: String::from("Unknown"),
+                    reason: GfrStatus::ErrorInvalidData,
+                });
+            }
+        }
+    }
+
+    if !has_recipient {
+        return Err(GfrStatus::ErrorInvalidInput); // Missing valid encryption key
+    }
+
+    // 5. Finalize the nested payload
+    let final_data = if ascii_armor {
+        enc_builder
+            .to_armored_string(&mut rng, ArmorOptions::default())
+            .map_err(|_| GfrStatus::ErrorArmorFailed)?
+            .into_bytes()
+    } else {
+        enc_builder
+            .to_vec(&mut rng)
+            .map_err(|_| GfrStatus::ErrorInternal)?
+    };
+
+    Ok(EncryptAndSignResultInternal {
+        data: final_data,
+        signatures: created_signatures,
+        invalid_recipients,
+    })
+}

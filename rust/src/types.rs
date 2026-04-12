@@ -127,13 +127,26 @@ pub struct GfrInvalidRecipientC {
     pub reason: GfrStatus,
 }
 
+// Metadata for signing operations (reusable)
+#[repr(C)]
+pub struct GfrSignMetadataC {
+    pub signatures: *mut GfrSignatureResultC,
+    pub signature_count: usize,
+}
+
+// Metadata for encryption operations (reusable)
+#[repr(C)]
+pub struct GfrEncryptMetadataC {
+    pub invalid_recipients: *mut GfrInvalidRecipientC,
+    pub invalid_recipient_count: usize,
+}
+
 // Result structure for the encryption operation
 #[repr(C)]
 pub struct GfrEncryptResultC {
     pub data: *mut u8,
     pub data_len: usize,
-    pub invalid_recipients: *mut GfrInvalidRecipientC,
-    pub invalid_recipient_count: usize,
+    pub meta: GfrEncryptMetadataC,
 }
 
 #[repr(C)]
@@ -150,8 +163,7 @@ pub struct GfrDecryptResultC {
 pub struct GfrSignResultC {
     pub data: *mut u8,
     pub data_len: usize,
-    pub signatures: *mut GfrSignatureResultC,
-    pub signature_count: usize,
+    pub meta: GfrSignMetadataC,
 }
 
 /// The comprehensive result of a verification operation
@@ -167,4 +179,13 @@ pub struct GfrVerifyResultC {
 
     // Helper flag: true if AT LEAST ONE signature is perfectly Valid
     pub is_verified: bool,
+}
+
+// Result for encrypting AND signing (The perfect composition)
+#[repr(C)]
+pub struct GfrEncryptAndSignResultC {
+    pub data: *mut u8,
+    pub data_len: usize,
+    pub sign_meta: GfrSignMetadataC,
+    pub encrypt_meta: GfrEncryptMetadataC,
 }
