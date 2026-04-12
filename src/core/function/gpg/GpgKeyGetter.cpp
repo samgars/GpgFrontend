@@ -312,8 +312,8 @@ class GpgKeyGetter::Impl : public SingletonFunctionObject<GpgKeyGetter::Impl> {
         }
 
         keys_cache_.push_back(key);
-        keys_search_cache_.insert(meta.fpr, key);
-        keys_search_cache_.insert(meta.key_id, key);
+        keys_search_cache_.insert(key->Fingerprint(), key);
+        keys_search_cache_.insert(key->ID(), key);
 
         for (const auto& s_key : key->SubKeys()) {
           if (s_key.ID() == key->ID()) continue;
