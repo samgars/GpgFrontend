@@ -28,6 +28,8 @@
 
 #include "RustUtils.h"
 
+#include "core/function/GFKeyDatabase.h"
+
 namespace GpgFrontend {
 
 auto KeyAlgoId2GfrKeyAlgo(const QString& algo_id) -> Rust::GfrKeyAlgo {
@@ -68,8 +70,118 @@ auto GF_CORE_EXPORT GfrKeyAlgo2KeyAlgoName(Rust::GfrKeyAlgo algo) -> QString {
   }
 }
 
-namespace {
+auto SniffRecipientKeyIds(const GFBuffer& in_buffer) -> QStringList {
+  char* out_recipients = nullptr;
+  auto err = Rust::gfr_crypto_get_recipients(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      &out_recipients);
 
+  if (err != Rust::GfrStatus::Success || out_recipients == nullptr) {
+    LOG_E() << "Rust FFI get_recipients failed.";
+    return {};
+  }
+
+  auto recipients_str = QString::fromUtf8(out_recipients);
+  Rust::gfr_crypto_free_string(out_recipients);
+
+  auto recipient_ids = recipients_str.split(",", Qt::SkipEmptyParts);
+  return recipient_ids;
+}
+
+auto SniffIssuerKeyIds(const GFBuffer& in_buffer) -> QStringList {
+  char* out_issuers = nullptr;
+  auto err = Rust::gfr_crypto_get_signature_issuers(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      &out_issuers);
+
+  if (err != Rust::GfrStatus::Success || out_issuers == nullptr) {
+    LOG_E() << "Rust FFI get_signature_issuers failed.";
+    return {};
+  }
+
+  auto issuers_str = QString::fromUtf8(out_issuers);
+  Rust::gfr_crypto_free_string(out_issuers);
+
+  return issuers_str.split(",", Qt::SkipEmptyParts);
+  ;
+}
+
+auto GetKeyBlockFromKeyIdsForDecryption(GFKeyDatabase& key_db,
+                                        const QStringList& key_ids) -> QString {
+  // Variables to store our target key for decryption
+  QString target_secret_key_block;
+  QString target_primary_fpr;
+  bool found_usable_secret = false;
+
+  // 2. Iterate through all sniffed recipient IDs to find a USABLE secret key
+  for (const auto& key_id : key_ids) {
+    // Fetch the full metadata tree (Primary + Subkeys)
+    auto meta_opt = key_db.GetKeyMetadata(key_id);
+    if (!meta_opt) continue;
+
+    // Check if the recipient ID matches the primary key itself
+    // (Rare for encryption, but possible with older RSA keys)
+    if (meta_opt->key_id.toUpper() == key_id.toUpper() ||
+        meta_opt->fpr.toUpper() == key_id.toUpper()) {
+      if (meta_opt->has_secret) {
+        found_usable_secret = true;
+      }
+    } else {
+      // Check if the recipient ID matches a subkey, and IF THAT SUBKEY HAS A
+      // SECRET
+      for (const auto& subkey : meta_opt->subkeys) {
+        if (subkey.key_id.toUpper() == key_id.toUpper() ||
+            subkey.fpr.toUpper() == key_id.toUpper()) {
+          if (subkey.has_secret) {
+            found_usable_secret = true;
+          } else {
+            LOG_W() << "Subkey " << key_id
+                    << " matched, but its secret is stripped/offline.";
+          }
+          break;  // Stop searching subkeys for this specific recipient_id
+        }
+      }
+    }
+
+    // If we found a usable secret key, fetch the actual key block and stop
+    // searching
+    if (found_usable_secret) {
+      auto blocks = key_db.GetKeyBlocks(meta_opt->fpr);
+      if (blocks && !blocks->secret_key.isEmpty()) {
+        target_secret_key_block = blocks->secret_key;
+        target_primary_fpr = meta_opt->fpr;
+        break;
+      }
+      // Fallback in case DB is inconsistent
+      found_usable_secret = false;
+    }
+  }
+
+  // 3. Handle the result of our search
+  if (!found_usable_secret) {
+    LOG_E() << "No USABLE secret key found in local database to decrypt this "
+               "message. "
+            << "Keys might be offline or on a smartcard.";
+    return {};
+  }
+
+  return target_secret_key_block;
+}
+
+auto GetKeyBlocksForVerification(GFKeyDatabase& key_db,
+                                 const QStringList& key_ids)
+    -> QContainer<QByteArray> {
+  QContainer<QByteArray> verified_keys_utf8;
+  for (const auto& issuer_id : key_ids) {
+    auto key = key_db.GetKeyBlocks(issuer_id);
+    if (key && !key->public_key.isEmpty()) {
+      verified_keys_utf8.push_back(key->public_key.toUtf8());
+    }
+  }
+  return verified_keys_utf8;
+}
+
+namespace {
 auto ParseEncryptResultMeta(const Rust::GfrEncryptMetadataC& m)
     -> GFEncryptResult {
   GFEncryptResult result;
@@ -129,22 +241,13 @@ auto ParseSignResultMeta(const Rust::GfrSignMetadataC& m) -> GFSignResult {
   return result;
 }
 
-}  // namespace
-
-auto GfrEncryptResultC2GFEncryptResult(const Rust::GfrEncryptResultC& r)
-    -> GFEncryptResult {
-  GFEncryptResult result = ParseEncryptResultMeta(r.meta);
-  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
-  return result;
-}
-
-auto GfrDecryptResultC2GFDecryptResult(const Rust::GfrDecryptResultC& r)
+auto ParseDecryptResultMeta(const Rust::GfrDecryptMetadataC& m)
     -> GFDecryptResult {
   GFDecryptResult result;
 
-  result.filename = QString::fromUtf8(r.filename);
-  for (size_t i = 0; i < r.recipient_count; ++i) {
-    const auto& rec = r.recipients[i];
+  result.filename = QString::fromUtf8(m.filename);
+  for (size_t i = 0; i < m.recipient_count; ++i) {
+    const auto& rec = m.recipients[i];
     GpgError status;
     if (rec.status == Rust::GfrRecipientStatus::Success) {
       status = GPG_ERR_NO_ERROR;
@@ -159,23 +262,17 @@ auto GfrDecryptResultC2GFDecryptResult(const Rust::GfrDecryptResultC& r)
         status,
     });
   }
-  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+
   return result;
 }
 
-auto GfrSignResultC2GFSignResult(const Rust::GfrSignResultC& r)
-    -> GFSignResult {
-  GFSignResult result = ParseSignResultMeta(r.meta);
-  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
-  return result;
-}
-
-auto GfrVerifyResultC2GFVerifyResult(const Rust::GfrVerifyResultC& r)
+auto ParseVerifyResultMeta(const Rust::GfrVerifyMetadataC& m)
     -> GFVerifyResult {
   GFVerifyResult result;
-  result.is_verified = r.is_verified;
-  for (size_t i = 0; i < r.signature_count; ++i) {
-    const auto& sig = r.signatures[i];
+
+  result.is_verified = m.is_verified;
+  for (size_t i = 0; i < m.signature_count; ++i) {
+    const auto& sig = m.signatures[i];
 
     auto sig_status = GFSignatureStatus::kUNKNOWN_ERROR;
     switch (sig.status) {
@@ -202,6 +299,37 @@ auto GfrVerifyResultC2GFVerifyResult(const Rust::GfrVerifyResultC& r)
         sig.hash_algo,
     });
   }
+
+  return result;
+}
+
+}  // namespace
+
+auto GfrEncryptResultC2GFEncryptResult(const Rust::GfrEncryptResultC& r)
+    -> GFEncryptResult {
+  GFEncryptResult result = ParseEncryptResultMeta(r.meta);
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  return result;
+}
+
+auto GfrDecryptResultC2GFDecryptResult(const Rust::GfrDecryptResultC& r)
+    -> GFDecryptResult {
+  GFDecryptResult result = ParseDecryptResultMeta(r.meta);
+
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  return result;
+}
+
+auto GfrSignResultC2GFSignResult(const Rust::GfrSignResultC& r)
+    -> GFSignResult {
+  GFSignResult result = ParseSignResultMeta(r.meta);
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  return result;
+}
+
+auto GfrVerifyResultC2GFVerifyResult(const Rust::GfrVerifyResultC& r)
+    -> GFVerifyResult {
+  GFVerifyResult result = ParseVerifyResultMeta(r.meta);
   return result;
 }
 
@@ -211,6 +339,15 @@ auto GfrEncryptAndSignResultC2GFEncryptAndSignResult(
   result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
   result.sign_result = ParseSignResultMeta(r.sign_meta);
   result.encrypt_result = ParseEncryptResultMeta(r.encrypt_meta);
+  return result;
+}
+
+auto GfrDecryptAndVerifyResultC2GFDecryptAndVerifyResult(
+    const Rust::GfrDecryptAndVerifyResultC& r) -> GFDecryptAndVerifyResult {
+  GFDecryptAndVerifyResult result;
+  result.data = GFBuffer(reinterpret_cast<const char*>(r.data), r.data_len);
+  result.decrypt_result = ParseDecryptResultMeta(r.decrypt_meta);
+  result.verify_result = ParseVerifyResultMeta(r.verify_meta);
   return result;
 }
 

@@ -217,90 +217,28 @@ auto DecryptImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
 
 auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
                      const DataObjectPtr& data_object) -> GpgError {
-  char* out_recipients = nullptr;
-  auto err = Rust::gfr_crypto_get_recipients(
-      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
-      &out_recipients);
-
-  if (err != Rust::GfrStatus::Success || out_recipients == nullptr) {
-    LOG_E() << "Rust FFI get_recipients failed.";
-    return GPG_ERR_GENERAL;
-  }
-
-  auto recipients_str = QString::fromUtf8(out_recipients);
-  Rust::gfr_crypto_free_string(out_recipients);
-
-  QStringList recipient_ids = recipients_str.split(",", Qt::SkipEmptyParts);
-
-  LOG_D() << "Recipients extracted from RPGP message: " << recipient_ids;
-
   auto key_db = ctx_.KeyDatabase();
   if (!key_db) {
     LOG_E() << "Failed to get key database from context";
     return GPG_ERR_GENERAL;
   }
 
+  QStringList recipient_ids = SniffRecipientKeyIds(in_buffer);
+  LOG_D() << "Recipients extracted from RPGP message: " << recipient_ids;
+
   // Variables to store our target key for decryption
-  QString target_secret_key_block;
-  QString target_primary_fpr;
-  bool found_usable_secret = false;
-
-  // 2. Iterate through all sniffed recipient IDs to find a USABLE secret key
-  for (const auto& key_id : recipient_ids) {
-    // Fetch the full metadata tree (Primary + Subkeys)
-    auto meta_opt = key_db->GetKeyMetadata(key_id);
-    if (!meta_opt) continue;
-
-    // Check if the recipient ID matches the primary key itself
-    // (Rare for encryption, but possible with older RSA keys)
-    if (meta_opt->key_id.toUpper() == key_id.toUpper() ||
-        meta_opt->fpr.toUpper() == key_id.toUpper()) {
-      if (meta_opt->has_secret) {
-        found_usable_secret = true;
-      }
-    } else {
-      // Check if the recipient ID matches a subkey, and IF THAT SUBKEY HAS A
-      // SECRET
-      for (const auto& subkey : meta_opt->subkeys) {
-        if (subkey.key_id.toUpper() == key_id.toUpper() ||
-            subkey.fpr.toUpper() == key_id.toUpper()) {
-          if (subkey.has_secret) {
-            found_usable_secret = true;
-          } else {
-            LOG_W() << "Subkey " << key_id
-                    << " matched, but its secret is stripped/offline.";
-          }
-          break;  // Stop searching subkeys for this specific recipient_id
-        }
-      }
-    }
-
-    // If we found a usable secret key, fetch the actual key block and stop
-    // searching
-    if (found_usable_secret) {
-      auto blocks = key_db->GetKeyBlocks(meta_opt->fpr);
-      if (blocks && !blocks->secret_key.isEmpty()) {
-        target_secret_key_block = blocks->secret_key;
-        target_primary_fpr = meta_opt->fpr;
-        break;
-      }
-      // Fallback in case DB is inconsistent
-      found_usable_secret = false;
-    }
-  }
-
-  // 3. Handle the result of our search
-  if (!found_usable_secret) {
-    LOG_E() << "No USABLE secret key found in local database to decrypt this "
-               "message. "
-            << "Keys might be offline or on a smartcard.";
+  QString target_secret_key_block =
+      GetKeyBlockFromKeyIdsForDecryption(*key_db, recipient_ids);
+  if (target_secret_key_block.isEmpty()) {
+    LOG_E() << "No USABLE secret key found in local database to decrypt: "
+            << recipient_ids;
     return GPG_ERR_NO_SECKEY;
   }
 
   Rust::GfrDecryptResultC decrypt_result;
   auto secret_key_utf8 = target_secret_key_block.toUtf8();
 
-  err = Rust::gfr_crypto_decrypt_data(
+  auto err = Rust::gfr_crypto_decrypt_data(
       reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
       secret_key_utf8.constData(), "123456", &decrypt_result);
 
@@ -374,35 +312,20 @@ auto VerifyImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
 auto VerifyRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
                     const GFBuffer& sig_buffer,
                     const DataObjectPtr& data_object) -> GpgError {
-  char* out_issuers = nullptr;
-  auto err = Rust::gfr_crypto_get_signature_issuers(
-      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
-      &out_issuers);
-
-  if (err != Rust::GfrStatus::Success || out_issuers == nullptr) {
-    LOG_E() << "Rust FFI get_signature_issuers failed.";
-    return GPG_ERR_GENERAL;
-  }
-
-  auto issuers_str = QString::fromUtf8(out_issuers);
-  Rust::gfr_crypto_free_string(out_issuers);
-
-  LOG_D() << "Signature issuers extracted from RPGP message: " << issuers_str;
-
-  auto issuer_ids = issuers_str.split(",", Qt::SkipEmptyParts);
   auto key_db = ctx_.KeyDatabase();
   if (!key_db) {
     LOG_E() << "Failed to get key database from context";
     return GPG_ERR_GENERAL;
   }
 
-  QContainer<QByteArray> verified_keys_utf8;
-  for (const auto& issuer_id : issuer_ids) {
-    auto key = key_db->GetKeyBlocks(issuer_id);
-    if (key && !key->public_key.isEmpty()) {
-      verified_keys_utf8.push_back(key->public_key.toUtf8());
-    }
+  auto issuer_ids = SniffIssuerKeyIds(in_buffer);
+  if (issuer_ids.isEmpty()) {
+    LOG_W() << "No signature issuers found in RPGP message.";
+    return GPG_ERR_INV_DATA;
   }
+
+  QContainer<QByteArray> verified_keys_utf8 =
+      GetKeyBlocksForVerification(*key_db, issuer_ids);
 
   QContainer<const char*> c_verified_keys;
   for (const auto& key : verified_keys_utf8) {
@@ -610,11 +533,94 @@ auto DecryptVerifyImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
   return err;
 }
 
+namespace {
+extern "C" {
+auto FetchPublicKeyCallback(const char* fpr, void* user_data) -> char* {
+  if ((fpr == nullptr) || (user_data == nullptr)) return nullptr;
+
+  auto* key_db = static_cast<GFKeyDatabase*>(user_data);
+  QString fingerprint = QString::fromUtf8(fpr);
+
+  LOG_D() << "Rust FFI requested public key for issuer: " << fingerprint;
+
+  auto key_block = key_db->GetKeyBlocks(fingerprint);
+  if (key_block && !key_block->public_key.isEmpty()) {
+    QByteArray utf8 = key_block->public_key.toUtf8();
+    // Allocate memory using strdup (or standard malloc) for Rust to safely
+    // consume
+    char* c_str = reinterpret_cast<char*>(
+        SMAMalloc(utf8.size() + 1));  // +1 for null terminator
+    std::memcpy(c_str, utf8.constData(), utf8.size());
+    c_str[utf8.size()] = '\0';
+    return c_str;
+  }
+  return nullptr;
+}
+
+void FreeKeyCallback(void* ptr, void*) {
+  if (ptr != nullptr) {
+    SMAFree(ptr);
+  }
+}
+}
+}  // namespace
+
+auto DecryptVerifyRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
+                           const DataObjectPtr& data_object) -> GpgError {
+  auto key_db = ctx_.KeyDatabase();
+  if (!key_db) {
+    LOG_E() << "Failed to get key database from context";
+    return GPG_ERR_GENERAL;
+  }
+
+  QStringList recipient_ids = SniffRecipientKeyIds(in_buffer);
+  LOG_D() << "Recipients extracted from RPGP message: " << recipient_ids;
+
+  // Variables to store our target key for decryption
+  QString target_secret_key_block =
+      GetKeyBlockFromKeyIdsForDecryption(*key_db, recipient_ids);
+  if (target_secret_key_block.isEmpty()) {
+    LOG_E() << "No USABLE secret key found in local database to decrypt: "
+            << recipient_ids;
+    return GPG_ERR_NO_SECKEY;
+  }
+
+  Rust::GfrDecryptAndVerifyResultC decrypt_verify_result;
+
+  auto err = Rust::gfr_crypto_decrypt_and_verify_data(
+      reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
+      target_secret_key_block.toUtf8().constData(), "123456",
+      FetchPublicKeyCallback, FreeKeyCallback, key_db.data(),
+      &decrypt_verify_result);
+
+  if (err != Rust::GfrStatus::Success) {
+    LOG_E() << "Rust FFI decrypt-and-verify failed with status: "
+            << static_cast<int>(err);
+    return GPG_ERR_GENERAL;
+  }
+
+  GFDecryptAndVerifyResult result =
+      GfrDecryptAndVerifyResultC2GFDecryptAndVerifyResult(
+          decrypt_verify_result);
+  Rust::gfr_crypto_free_decrypt_and_verify_result(&decrypt_verify_result);
+
+  data_object->Swap({
+      GpgDecryptResult(result.decrypt_result),
+      GpgVerifyResult(result.verify_result),
+      result.data,
+  });
+
+  return GPG_ERR_NO_ERROR;
+}
+
 void GpgBasicOperator::DecryptVerify(const GFBuffer& in_buffer,
                                      const GpgOperationCallback& cb) {
   RunGpgOperaAsync(
       GetChannel(),
-      [=](const DataObjectPtr& data_object) {
+      [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return DecryptVerifyRpgpImpl(ctx_, in_buffer, data_object);
+        }
         return DecryptVerifyImpl(ctx_, in_buffer, data_object);
       },
       cb, "gpgme_op_decrypt_verify", "2.2.0");
@@ -625,6 +631,9 @@ auto GpgBasicOperator::DecryptVerifySync(const GFBuffer& in_buffer)
   return RunGpgOperaSync(
       GetChannel(),
       [=](const DataObjectPtr& data_object) -> GpgError {
+        if (ctx_.BackendType() == PGPBackendType::kRPGP) {
+          return DecryptVerifyRpgpImpl(ctx_, in_buffer, data_object);
+        }
         return DecryptVerifyImpl(ctx_, in_buffer, data_object);
       },
       "gpgme_op_decrypt_verify", "2.2.0");

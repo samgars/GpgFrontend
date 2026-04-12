@@ -31,6 +31,7 @@
 #ifdef HAS_RUST_SUPPORT
 
 #include "core/GpgCoreRust.h"
+#include "core/function/GFKeyDatabase.h"
 #include "core/typedef/GFTypedef.h"
 
 namespace GpgFrontend {
@@ -51,6 +52,43 @@ auto GF_CORE_EXPORT KeyAlgoId2GfrKeyAlgo(const QString& algo_id)
  * @return QString
  */
 auto GF_CORE_EXPORT GfrKeyAlgo2KeyAlgoName(Rust::GfrKeyAlgo algo) -> QString;
+
+/**
+ * @brief
+ *
+ * @param in_buffer
+ * @return QStringList
+ */
+auto GF_CORE_EXPORT SniffRecipientKeyIds(const GFBuffer& in_buffer)
+    -> QStringList;
+
+/**
+ * @brief
+ *
+ * @param in_buffer
+ * @return QStringList
+ */
+auto GF_CORE_EXPORT SniffIssuerKeyIds(const GFBuffer& in_buffer) -> QStringList;
+
+/**
+ * @brief
+ *
+ * @param key_ids
+ * @return QString
+ */
+auto GF_CORE_EXPORT GetKeyBlockFromKeyIdsForDecryption(
+    GFKeyDatabase& key_db, const QStringList& key_ids) -> QString;
+
+/**
+ * @brief
+ *
+ * @param key_db
+ * @param key_ids
+ * @return QString
+ */
+auto GF_CORE_EXPORT GetKeyBlocksForVerification(GFKeyDatabase& key_db,
+                                                const QStringList& key_ids)
+    -> QContainer<QByteArray>;
 
 /**
  * @brief
@@ -94,6 +132,15 @@ auto GF_CORE_EXPORT GfrVerifyResultC2GFVerifyResult(
  */
 auto GF_CORE_EXPORT GfrEncryptAndSignResultC2GFEncryptAndSignResult(
     const Rust::GfrEncryptAndSignResultC& r) -> GFEncryptAndSignResult;
+
+/**
+ * @brief
+ *
+ * @param r
+ * @return GFDecryptAndVerifyResult
+ */
+auto GF_CORE_EXPORT GfrDecryptAndVerifyResultC2GFDecryptAndVerifyResult(
+    const Rust::GfrDecryptAndVerifyResultC& r) -> GFDecryptAndVerifyResult;
 
 }  // namespace GpgFrontend
 
