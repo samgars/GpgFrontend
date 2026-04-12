@@ -1,8 +1,9 @@
 use std::ffi::CString;
 
 use crate::types::{
-    GfrEncryptAndSignResultC, GfrEncryptMetadataC, GfrEncryptResultC, GfrSignMetadataC,
-    GfrSignResultC,
+    GfrDecryptAndVerifyResultC, GfrDecryptMetadataC, GfrDecryptResultC, GfrEncryptAndSignResultC,
+    GfrEncryptMetadataC, GfrEncryptResultC, GfrSignMetadataC, GfrSignResultC, GfrVerifyMetadataC,
+    GfrVerifyResultC,
 };
 
 /// Helper to free sign metadata
@@ -63,6 +64,75 @@ pub extern "C" fn gfr_crypto_free_encrypt_metadata(meta: *mut GfrEncryptMetadata
     }
 }
 
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_decrypt_metadata(meta: *mut GfrDecryptMetadataC) {
+    if meta.is_null() {
+        return;
+    }
+
+    unsafe {
+        if !(*meta).filename.is_null() {
+            drop(CString::from_raw((*meta).filename));
+        }
+
+        if !(*meta).recipients.is_null() && (*meta).recipient_count > 0 {
+            let recs_slice =
+                std::slice::from_raw_parts_mut((*meta).recipients, (*meta).recipient_count);
+            for rec in recs_slice.iter_mut() {
+                if !rec.key_id.is_null() {
+                    drop(CString::from_raw(rec.key_id));
+                }
+                if !rec.pub_algo.is_null() {
+                    drop(CString::from_raw(rec.pub_algo));
+                }
+            }
+            let array_ptr =
+                std::ptr::slice_from_raw_parts_mut((*meta).recipients, (*meta).recipient_count);
+            drop(Box::from_raw(array_ptr));
+        }
+        (*meta).filename = std::ptr::null_mut();
+        (*meta).recipients = std::ptr::null_mut();
+        (*meta).recipient_count = 0;
+    }
+}
+
+/// Free the verification result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_verify_metadata(meta: *mut GfrVerifyMetadataC) {
+    if meta.is_null() {
+        return;
+    }
+
+    unsafe {
+        // 2. Free the signatures array and its internal strings
+        if !(*meta).signatures.is_null() && (*meta).signature_count > 0 {
+            let sigs_slice =
+                std::slice::from_raw_parts_mut((*meta).signatures, (*meta).signature_count);
+
+            for sig in sigs_slice.iter_mut() {
+                if !sig.issuer_fpr.is_null() {
+                    drop(CString::from_raw(sig.issuer_fpr));
+                }
+                if !sig.pub_algo.is_null() {
+                    drop(CString::from_raw(sig.pub_algo));
+                }
+                if !sig.hash_algo.is_null() {
+                    drop(CString::from_raw(sig.hash_algo));
+                }
+            }
+
+            // Free the array itself
+            let array_ptr =
+                std::ptr::slice_from_raw_parts_mut((*meta).signatures, (*meta).signature_count);
+            drop(Box::from_raw(array_ptr));
+        }
+
+        (*meta).signatures = std::ptr::null_mut();
+        (*meta).signature_count = 0;
+        (*meta).is_verified = false;
+    }
+}
+
 /// Free the encryption result memory
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_free_encrypt_result(result: *mut GfrEncryptResultC) {
@@ -101,6 +171,44 @@ pub extern "C" fn gfr_crypto_free_sign_result(result: *mut GfrSignResultC) {
     }
 }
 
+/// Free the decryption result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_decrypt_result(result: *mut GfrDecryptResultC) {
+    if result.is_null() {
+        return;
+    }
+    unsafe {
+        // 1. Free the payload data
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+            (*result).data = std::ptr::null_mut();
+            (*result).data_len = 0;
+        }
+
+        // 2. Delegate freeing metadata to our helper
+        gfr_crypto_free_decrypt_metadata(&mut (*result).meta);
+    }
+}
+
+/// Free the verification result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_verify_result(result: *mut GfrVerifyResultC) {
+    if result.is_null() {
+        return;
+    }
+    unsafe {
+        // 1. Free the payload data
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+            (*result).data = std::ptr::null_mut();
+            (*result).data_len = 0;
+        }
+
+        // 2. Delegate freeing metadata to our helper
+        gfr_crypto_free_verify_metadata(&mut (*result).meta);
+    }
+}
+
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_free_encrypt_and_sign_result(result: *mut GfrEncryptAndSignResultC) {
     if result.is_null() {
@@ -117,5 +225,23 @@ pub extern "C" fn gfr_crypto_free_encrypt_and_sign_result(result: *mut GfrEncryp
         // 2. Delegate freeing metadata to our helpers
         gfr_crypto_free_sign_metadata(&mut (*result).sign_meta);
         gfr_crypto_free_encrypt_metadata(&mut (*result).encrypt_meta);
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_decrypt_and_verify_result(
+    result: *mut GfrDecryptAndVerifyResultC,
+) {
+    unsafe {
+        // 1. Free the payload data
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+            (*result).data = std::ptr::null_mut();
+            (*result).data_len = 0;
+        }
+
+        // 2. Delegate freeing metadata to our helper
+        gfr_crypto_free_decrypt_metadata(&mut (*result).decrypt_meta);
+        gfr_crypto_free_verify_metadata(&mut (*result).verify_meta);
     }
 }

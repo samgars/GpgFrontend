@@ -1,4 +1,5 @@
 use std::{
+    ffi::c_void,
     io::{Cursor, Read},
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -978,5 +979,160 @@ pub fn encrypt_and_sign_internal(
         data: final_data,
         signatures: created_signatures,
         invalid_recipients,
+    })
+}
+
+// Internal struct for the combined Decrypt + Verify operation
+pub struct DecryptAndVerifyResultInternal {
+    pub data: Vec<u8>,
+    pub filename: String,
+    pub recipients: Vec<RecipientResultInternal>,
+    pub is_verified: bool,
+    pub signatures: Vec<SignatureResultInternal>,
+}
+
+pub fn decrypt_and_verify_internal(
+    encrypted_data: &[u8],
+    secret_key_block: &str,
+    password: &str,
+    fetch_cb: Option<crate::types::GfrPublicKeyFetchCb>,
+    free_cb: Option<crate::types::GfrFreeCb>,
+    user_data: *mut c_void,
+) -> Result<DecryptAndVerifyResultInternal, GfrStatus> {
+    // 1. Parse secret key
+    let (skey, _) =
+        SignedSecretKey::from_string(secret_key_block).map_err(|_| GfrStatus::ErrorInvalidInput)?;
+
+    // 2. Sniff recipients from outer layer
+    let mut recipients = sniff_recipients(encrypted_data);
+
+    let parsed_message = if let Ok((msg, _)) = Message::from_armor(Cursor::new(encrypted_data)) {
+        msg
+    } else if let Ok(msg) = Message::from_bytes(encrypted_data) {
+        msg
+    } else {
+        return Err(GfrStatus::ErrorInvalidInput);
+    };
+
+    // 3. Decrypt outer layer
+    let pwd_fn = Password::from(password.as_bytes());
+    let mut decrypted = parsed_message
+        .decrypt(&pwd_fn, &skey)
+        .map_err(|_| GfrStatus::ErrorInternal)?;
+
+    // Update recipients
+    let primary_id = skey.primary_key.fingerprint().to_string();
+    let subkey_ids: Vec<String> = skey
+        .secret_subkeys
+        .iter()
+        .map(|s| s.key.fingerprint().to_string())
+        .collect();
+    for rec in &mut recipients {
+        if rec.key_id == primary_id || subkey_ids.contains(&rec.key_id) {
+            rec.status = GfrRecipientStatus::Success;
+        }
+    }
+
+    // 4. Decompress if necessary
+    if decrypted.is_compressed() {
+        decrypted = decrypted
+            .decompress()
+            .map_err(|_| GfrStatus::ErrorInternal)?;
+    }
+
+    // 5. Extract filename from headers BEFORE consuming payload
+    let mut filename = String::new();
+    if let Some(header) = decrypted.literal_data_header() {
+        filename = String::from_utf8_lossy(header.file_name()).to_string();
+    }
+
+    let is_signed = decrypted.is_signed();
+
+    // 6. !!! CRITICAL STEP !!!
+    // You MUST consume the payload first! This forces the stream reader to reach
+    // the end of the message and parse the trailing Signature packets.
+    let payload = decrypted
+        .as_data_vec()
+        .map_err(|_| GfrStatus::ErrorInternal)?;
+
+    // 7. Directly extract parsed signatures from the Message enum
+    let mut signatures = Vec::new();
+    if let pgp::composed::Message::Signed { ref reader, .. } = decrypted {
+        for i in 0..reader.num_signatures() {
+            // Because payload is consumed, the trailing signatures are now available
+            if let Some(sig) = reader.signature(i) {
+                for issuer in sig.issuer_fingerprint() {
+                    let fpr = issuer.to_string();
+                    let (hash_algo_id, pub_algo_id) = if let Some(config) = sig.config() {
+                        (
+                            config.hash_alg.to_string(),
+                            algo_to_string_simple(config.pub_alg),
+                        )
+                    } else {
+                        (String::new(), String::new())
+                    };
+
+                    if !signatures
+                        .iter()
+                        .any(|r: &SignatureResultInternal| r.fpr == fpr)
+                    {
+                        signatures.push(SignatureResultInternal {
+                            fpr,
+                            status: GfrSignatureStatus::NoKey, // Default to NoKey
+                            created_at: sig.created().map(|d| d.as_secs() as u32).unwrap_or(0),
+                            pub_algo: pub_algo_id,
+                            hash_algo: hash_algo_id,
+                            sig_type: GfrSignMode::Inline,
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    // 8. Dynamically Fetch Public Keys via C++ Callback
+    let mut certs = Vec::new();
+    if let Some(cb) = fetch_cb {
+        for sig in &signatures {
+            let c_fpr = std::ffi::CString::new(sig.fpr.clone()).unwrap_or_default();
+            let c_key_block = cb(c_fpr.as_ptr(), user_data);
+
+            if !c_key_block.is_null() {
+                if let Ok(key_str) = unsafe { std::ffi::CStr::from_ptr(c_key_block) }.to_str() {
+                    if let Ok((cert, _)) = SignedPublicKey::from_string(key_str) {
+                        certs.push(cert);
+                    }
+                }
+                if let Some(f_cb) = free_cb {
+                    f_cb(c_key_block as *mut c_void, user_data); // Free C++ allocated memory
+                }
+            }
+        }
+    }
+
+    // 9. Verify Signatures with fetched certs
+    let mut is_verified = false;
+    if is_signed {
+        for cert in &certs {
+            let is_cert_valid = decrypted.verify(cert).is_ok();
+            for sig in &mut signatures {
+                if cert_contains_issuer(cert, &sig.fpr) {
+                    sig.status = if is_cert_valid {
+                        is_verified = true;
+                        GfrSignatureStatus::Valid
+                    } else {
+                        GfrSignatureStatus::BadSignature
+                    };
+                }
+            }
+        }
+    }
+
+    Ok(DecryptAndVerifyResultInternal {
+        data: payload,
+        filename,
+        recipients,
+        is_verified,
+        signatures,
     })
 }

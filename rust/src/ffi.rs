@@ -2,9 +2,9 @@ use crate::crypto::get_signature_issuers_internal;
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
-    GfrDecryptResultC, GfrEncryptAndSignResultC, GfrEncryptResultC, GfrInvalidRecipientC,
-    GfrKeyConfig, GfrKeyMetadataC, GfrRecipientResultC, GfrSignMode, GfrSignResultC,
-    GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC, GfrVerifyResultC,
+    GfrDecryptAndVerifyResultC, GfrDecryptResultC, GfrEncryptAndSignResultC, GfrEncryptResultC,
+    GfrInvalidRecipientC, GfrKeyConfig, GfrKeyMetadataC, GfrRecipientResultC, GfrSignMode,
+    GfrSignResultC, GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC, GfrVerifyResultC,
 };
 use log::LevelFilter;
 use std::slice;
@@ -386,9 +386,9 @@ pub extern "C" fn gfr_crypto_decrypt_data(
         unsafe {
             (*out_result).data = data_ptr;
             (*out_result).data_len = data_len;
-            (*out_result).filename = c_filename;
-            (*out_result).recipients = recs_ptr;
-            (*out_result).recipient_count = recs_count;
+            (*out_result).meta.filename = c_filename;
+            (*out_result).meta.recipients = recs_ptr;
+            (*out_result).meta.recipient_count = recs_count;
         }
 
         Ok(())
@@ -398,46 +398,6 @@ pub extern "C" fn gfr_crypto_decrypt_data(
         Ok(Ok(_)) => GfrStatus::Success,
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
-    }
-}
-
-/// Free the decryption result memory
-#[unsafe(no_mangle)]
-pub extern "C" fn gfr_crypto_free_decrypt_result(result: *mut GfrDecryptResultC) {
-    if result.is_null() {
-        return;
-    }
-
-    unsafe {
-        if !(*result).data.is_null() && (*result).data_len > 0 {
-            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
-        }
-
-        if !(*result).filename.is_null() {
-            drop(CString::from_raw((*result).filename));
-        }
-
-        if !(*result).recipients.is_null() && (*result).recipient_count > 0 {
-            let recs_slice =
-                std::slice::from_raw_parts_mut((*result).recipients, (*result).recipient_count);
-            for rec in recs_slice.iter_mut() {
-                if !rec.key_id.is_null() {
-                    drop(CString::from_raw(rec.key_id));
-                }
-                if !rec.pub_algo.is_null() {
-                    drop(CString::from_raw(rec.pub_algo));
-                }
-            }
-            let array_ptr =
-                std::ptr::slice_from_raw_parts_mut((*result).recipients, (*result).recipient_count);
-            drop(Box::from_raw(array_ptr));
-        }
-
-        (*result).data = std::ptr::null_mut();
-        (*result).data_len = 0;
-        (*result).filename = std::ptr::null_mut();
-        (*result).recipients = std::ptr::null_mut();
-        (*result).recipient_count = 0;
     }
 }
 
@@ -644,9 +604,9 @@ pub extern "C" fn gfr_crypto_verify_data(
         unsafe {
             (*out_result).data = data_ptr;
             (*out_result).data_len = data_len;
-            (*out_result).signatures = sigs_ptr;
-            (*out_result).signature_count = sigs_count;
-            (*out_result).is_verified = internal_result.is_verified;
+            (*out_result).meta.signatures = sigs_ptr;
+            (*out_result).meta.signature_count = sigs_count;
+            (*out_result).meta.is_verified = internal_result.is_verified;
         }
 
         Ok(())
@@ -686,53 +646,6 @@ pub extern "C" fn gfr_crypto_get_signature_issuers(
         Err(_) => GfrStatus::ErrorPanic,
     }
 }
-
-/// Free the verification result memory
-#[unsafe(no_mangle)]
-pub extern "C" fn gfr_crypto_free_verify_result(result: *mut GfrVerifyResultC) {
-    if result.is_null() {
-        return;
-    }
-
-    unsafe {
-        // 1. Free the extracted data buffer
-        if !(*result).data.is_null() && (*result).data_len > 0 {
-            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
-        }
-
-        // 2. Free the signatures array and its internal strings
-        if !(*result).signatures.is_null() && (*result).signature_count > 0 {
-            let sigs_slice =
-                std::slice::from_raw_parts_mut((*result).signatures, (*result).signature_count);
-
-            for sig in sigs_slice.iter_mut() {
-                if !sig.issuer_fpr.is_null() {
-                    drop(CString::from_raw(sig.issuer_fpr));
-                }
-                if !sig.pub_algo.is_null() {
-                    drop(CString::from_raw(sig.pub_algo));
-                }
-                if !sig.hash_algo.is_null() {
-                    drop(CString::from_raw(sig.hash_algo));
-                }
-            }
-
-            // Free the array itself
-            let array_ptr =
-                std::ptr::slice_from_raw_parts_mut((*result).signatures, (*result).signature_count);
-            drop(Box::from_raw(array_ptr));
-        }
-
-        // Zero out the struct to prevent double-free mistakes from the C side
-        (*result).data = std::ptr::null_mut();
-        (*result).data_len = 0;
-        (*result).signatures = std::ptr::null_mut();
-        (*result).signature_count = 0;
-        (*result).is_verified = false;
-    }
-}
-
-// In ffi.rs
 
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_encrypt_and_sign_data(
@@ -842,6 +755,106 @@ pub extern "C" fn gfr_crypto_encrypt_and_sign_data(
             (*out_result).sign_meta.signature_count = sigs_count;
             (*out_result).encrypt_meta.invalid_recipients = recs_ptr;
             (*out_result).encrypt_meta.invalid_recipient_count = recs_count;
+        }
+
+        Ok(())
+    });
+
+    match result {
+        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Err(e)) => e,
+        Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_decrypt_and_verify_data(
+    in_data: *const u8,
+    in_len: usize,
+    secret_key: *const c_char,
+    password: *const c_char,
+    fetch_cb: crate::types::GfrPublicKeyFetchCb,
+    free_cb: crate::types::GfrFreeCb,
+    user_data: *mut std::ffi::c_void,
+    out_result: *mut GfrDecryptAndVerifyResultC,
+) -> GfrStatus {
+    let result = catch_unwind(|| -> Result<(), GfrStatus> {
+        if in_data.is_null() || secret_key.is_null() || out_result.is_null() {
+            return Err(GfrStatus::ErrorInvalidInput);
+        }
+
+        let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
+        let skey_str = unsafe { CStr::from_ptr(secret_key) }.to_str().unwrap_or("");
+        let pwd_str = if password.is_null() {
+            ""
+        } else {
+            unsafe { CStr::from_ptr(password) }.to_str().unwrap_or("")
+        };
+
+        // Execute core logic
+        let mut internal_result = crate::crypto::decrypt_and_verify_internal(
+            data_slice,
+            skey_str,
+            pwd_str,
+            Some(fetch_cb),
+            Some(free_cb),
+            user_data,
+        )?;
+
+        // 1. Process Payload
+        internal_result.data.shrink_to_fit();
+        let data_ptr = internal_result.data.as_mut_ptr();
+        let data_len = internal_result.data.len();
+        std::mem::forget(internal_result.data);
+
+        // 2. Process Filename
+        let c_filename = CString::new(internal_result.filename)
+            .unwrap_or_default()
+            .into_raw();
+
+        // 3. Process Decrypt Meta (Recipients)
+        let mut c_recipients = Vec::with_capacity(internal_result.recipients.len());
+        for rec in internal_result.recipients {
+            c_recipients.push(GfrRecipientResultC {
+                key_id: CString::new(rec.key_id).unwrap_or_default().into_raw(),
+                pub_algo: CString::new(rec.pub_algo).unwrap_or_default().into_raw(),
+                status: rec.status,
+            });
+        }
+        let mut boxed_recs = c_recipients.into_boxed_slice();
+        let recs_ptr = boxed_recs.as_mut_ptr();
+        let recs_count = boxed_recs.len();
+        std::mem::forget(boxed_recs);
+
+        // 4. Process Verify Meta (Signatures)
+        let mut c_signatures = Vec::with_capacity(internal_result.signatures.len());
+        for sig in internal_result.signatures {
+            c_signatures.push(GfrSignatureResultC {
+                issuer_fpr: CString::new(sig.fpr).unwrap_or_default().into_raw(),
+                status: sig.status,
+                created_at: sig.created_at,
+                pub_algo: CString::new(sig.pub_algo).unwrap_or_default().into_raw(),
+                hash_algo: CString::new(sig.hash_algo).unwrap_or_default().into_raw(),
+                sig_type: sig.sig_type,
+            });
+        }
+        let mut boxed_sigs = c_signatures.into_boxed_slice();
+        let sigs_ptr = boxed_sigs.as_mut_ptr();
+        let sigs_count = boxed_sigs.len();
+        std::mem::forget(boxed_sigs);
+
+        // 5. Populate C Struct
+        unsafe {
+            (*out_result).data = data_ptr;
+            (*out_result).data_len = data_len;
+            (*out_result).decrypt_meta.filename = c_filename;
+
+            (*out_result).decrypt_meta.recipients = recs_ptr;
+            (*out_result).decrypt_meta.recipient_count = recs_count;
+
+            (*out_result).verify_meta.is_verified = internal_result.is_verified;
+            (*out_result).verify_meta.signatures = sigs_ptr;
+            (*out_result).verify_meta.signature_count = sigs_count;
         }
 
         Ok(())

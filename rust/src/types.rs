@@ -1,5 +1,5 @@
 use core::fmt;
-use std::{error::Error, os::raw::c_char};
+use std::{error::Error, ffi::c_void, os::raw::c_char};
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -141,6 +141,23 @@ pub struct GfrEncryptMetadataC {
     pub invalid_recipient_count: usize,
 }
 
+#[repr(C)]
+pub struct GfrDecryptMetadataC {
+    pub filename: *mut c_char,
+    pub recipients: *mut GfrRecipientResultC,
+    pub recipient_count: usize,
+}
+
+#[repr(C)]
+pub struct GfrVerifyMetadataC {
+    // The list of signatures found and evaluated
+    pub signatures: *mut GfrSignatureResultC,
+    pub signature_count: usize,
+
+    // Helper flag: true if AT LEAST ONE signature is perfectly Valid
+    pub is_verified: bool,
+}
+
 // Result structure for the encryption operation
 #[repr(C)]
 pub struct GfrEncryptResultC {
@@ -153,9 +170,7 @@ pub struct GfrEncryptResultC {
 pub struct GfrDecryptResultC {
     pub data: *mut u8,
     pub data_len: usize,
-    pub filename: *mut c_char,
-    pub recipients: *mut GfrRecipientResultC,
-    pub recipient_count: usize,
+    pub meta: GfrDecryptMetadataC,
 }
 
 /// The comprehensive result of a signing operation
@@ -169,16 +184,9 @@ pub struct GfrSignResultC {
 /// The comprehensive result of a verification operation
 #[repr(C)]
 pub struct GfrVerifyResultC {
-    // The underlying data (For ClearText/Inline, this is the extracted payload. For Detached, this might be null)
     pub data: *mut u8,
     pub data_len: usize,
-
-    // The list of signatures found and evaluated
-    pub signatures: *mut GfrSignatureResultC,
-    pub signature_count: usize,
-
-    // Helper flag: true if AT LEAST ONE signature is perfectly Valid
-    pub is_verified: bool,
+    pub meta: GfrVerifyMetadataC,
 }
 
 // Result for encrypting AND signing (The perfect composition)
@@ -189,3 +197,19 @@ pub struct GfrEncryptAndSignResultC {
     pub sign_meta: GfrSignMetadataC,
     pub encrypt_meta: GfrEncryptMetadataC,
 }
+
+#[repr(C)]
+pub struct GfrDecryptAndVerifyResultC {
+    pub data: *mut u8,
+    pub data_len: usize,
+    pub decrypt_meta: GfrDecryptMetadataC,
+    pub verify_meta: GfrVerifyMetadataC,
+}
+
+// Callback to fetch a public key block by its Fingerprint.
+// Returns a dynamically allocated C-string containing the armored key, or null if not found.
+pub type GfrPublicKeyFetchCb =
+    extern "C" fn(issuer_fpr: *const c_char, user_data: *mut c_void) -> *mut c_char;
+
+// Callback to free the memory allocated by the fetch callback.
+pub type GfrFreeCb = extern "C" fn(ptr: *mut c_void, user_data: *mut c_void);
