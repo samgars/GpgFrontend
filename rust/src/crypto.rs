@@ -3,7 +3,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::types::{GfrSignMode, GfrSignatureStatus, GfrStatus};
+use crate::types::{GfrRecipientStatus, GfrSignMode, GfrSignatureStatus, GfrStatus};
 use log::debug;
 use pgp::{
     armor::Dearmor,
@@ -80,49 +80,116 @@ pub fn encrypt_text_internal(
     Ok(raw_str)
 }
 
+pub struct RecipientResultInternal {
+    pub key_id: String, // PGP PKESK only exposes 16-char Key ID, not full Fingerprint
+    pub pub_algo: String,
+    pub status: GfrRecipientStatus,
+}
+
+pub struct DecryptResultInternal {
+    pub data: Vec<u8>,
+    pub filename: String,
+    pub recipients: Vec<RecipientResultInternal>,
+}
+
+// Helper to sniff all intended recipients from the encrypted data
+fn sniff_recipients(data: &[u8]) -> Vec<RecipientResultInternal> {
+    let mut results = Vec::new();
+    let mut dearmored = Vec::new();
+    let _ = Dearmor::new(Cursor::new(data)).read_to_end(&mut dearmored);
+    let payload = if dearmored.is_empty() {
+        data
+    } else {
+        &dearmored
+    };
+
+    let parser = PacketParser::new(Cursor::new(payload));
+    for packet_result in parser {
+        if let Ok(Packet::PublicKeyEncryptedSessionKey(pkesk)) = packet_result {
+            if let Ok(id) = pkesk.id() {
+                let algo = if let Ok(algo_id) = pkesk.algorithm() {
+                    algo_to_string_simple(algo_id)
+                } else {
+                    String::new()
+                };
+                results.push(RecipientResultInternal {
+                    key_id: id.to_string(),
+                    pub_algo: algo,
+                    status: GfrRecipientStatus::NoKey, // Default to NoKey until proven otherwise
+                });
+            }
+        }
+    }
+    results
+}
+
 pub fn decrypt_internal(
     encrypted_data: &[u8],
     secret_key_block: &str,
     password: &str,
-) -> Result<(String, Vec<u8>), GfrStatus> {
-    // 1. Parse the secret key block
+) -> Result<DecryptResultInternal, GfrStatus> {
+    // 1. Parse the provided secret key block
     let (skey, _) =
         SignedSecretKey::from_string(secret_key_block).map_err(|_| GfrStatus::ErrorInvalidInput)?;
 
-    // 2. Try parsing the encrypted data
-    // First, try to parse it as an ASCII Armored message
+    // 2. Sniff the intended recipients from the raw message
+    let mut recipients = sniff_recipients(encrypted_data);
+
+    // 3. Try parsing the encrypted data
     let parsed_message = if let Ok((msg, _)) = Message::from_armor(Cursor::new(encrypted_data)) {
         msg
-    // If armored parsing fails, fallback to binary parsing
     } else if let Ok(msg) = Message::from_bytes(encrypted_data) {
         msg
     } else {
         return Err(GfrStatus::ErrorInvalidInput);
     };
 
-    // 3. Decrypt the message
-    // rpgp expects a password provider function and a reference to the secret key
+    // 4. Attempt to decrypt the message
     let pwd_fn = Password::from(password.as_bytes());
     let mut decrypted = parsed_message
         .decrypt(&pwd_fn, &skey)
-        .map_err(|_| GfrStatus::ErrorInternal)?;
+        .map_err(|_| GfrStatus::ErrorInternal)?; // Fails if wrong key or wrong password
 
-    // 4. Decompress if necessary
+    // 5. If decryption is successful, update the recipient list status
+    let primary_id = skey.primary_key.legacy_key_id().to_string();
+    let subkey_ids: Vec<String> = skey
+        .secret_subkeys
+        .iter()
+        .map(|s| s.key.legacy_key_id().to_string())
+        .collect();
+
+    for rec in &mut recipients {
+        // Match either the primary key ID or any subkey ID
+        if rec.key_id == primary_id || subkey_ids.contains(&rec.key_id) {
+            rec.status = GfrRecipientStatus::Success;
+        }
+    }
+
+    // 6. Decompress if necessary
     if decrypted.is_compressed() {
         decrypted = decrypted
             .decompress()
             .map_err(|_| GfrStatus::ErrorInternal)?;
     }
 
-    // 5. Extract the payload and filename
+    // 7. Extract the original filename if the underlying packet is a LiteralData packet
+    let mut filename = String::new();
+    if let pgp::composed::Message::Literal { ref reader, .. } = decrypted {
+        // Access the LiteralDataHeader first, then extract the filename
+        let header = reader.data_header();
+        filename = String::from_utf8_lossy(header.file_name()).to_string();
+    }
+
+    // 8. Extract the actual payload
     let payload = decrypted
         .as_data_vec()
         .map_err(|_| GfrStatus::ErrorInternal)?;
 
-    // Attempt to extract the filename if the decrypted message is a LiteralData packet
-    let filename = String::new();
-
-    Ok((filename, payload))
+    Ok(DecryptResultInternal {
+        data: payload,
+        filename,
+        recipients,
+    })
 }
 
 pub fn get_message_recipients_internal(data: &[u8]) -> Result<String, GfrStatus> {

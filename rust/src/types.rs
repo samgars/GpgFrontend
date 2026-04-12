@@ -104,6 +104,30 @@ pub struct GfrSignatureResultC {
     pub hash_algo: *mut c_char, // The hash algorithm used for this signature (if available)
 }
 
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GfrRecipientStatus {
+    Success = 0, // Successfully decrypted using this key
+    NoKey = 1,   // Key ID found, but we don't have the secret key to unlock it
+    Error = 2,   // We have the key, but decryption failed (e.g., wrong password)
+}
+
+#[repr(C)]
+pub struct GfrRecipientResultC {
+    pub key_id: *mut c_char,
+    pub pub_algo: *mut c_char,
+    pub status: GfrRecipientStatus,
+}
+
+#[repr(C)]
+pub struct GfrDecryptResultC {
+    pub data: *mut u8,
+    pub data_len: usize,
+    pub filename: *mut c_char,
+    pub recipients: *mut GfrRecipientResultC,
+    pub recipient_count: usize,
+}
+
 /// The comprehensive result of a signing operation
 #[repr(C)]
 pub struct GfrSignResultC {

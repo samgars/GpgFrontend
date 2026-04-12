@@ -2,8 +2,8 @@ use crate::crypto::get_signature_issuers_internal;
 use crate::key::extract_public_key_internal;
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
-    GfrKeyConfig, GfrKeyMetadataC, GfrSignMode, GfrSignResultC, GfrSignatureResultC, GfrStatus,
-    GfrSubkeyMetadataC, GfrVerifyResultC,
+    GfrDecryptResultC, GfrKeyConfig, GfrKeyMetadataC, GfrRecipientResultC, GfrSignMode,
+    GfrSignResultC, GfrSignatureResultC, GfrStatus, GfrSubkeyMetadataC, GfrVerifyResultC,
 };
 use log::LevelFilter;
 use std::slice;
@@ -320,26 +320,16 @@ pub extern "C" fn gfr_crypto_decrypt_data(
     in_len: usize,
     secret_key: *const c_char,
     password: *const c_char,
-    out_name: *mut *mut c_char,
-    out_data: *mut *mut u8, // Output parameter for the decrypted bytes
-    out_len: *mut usize,    // Output parameter for the length of decrypted bytes
+    out_result: *mut GfrDecryptResultC, // Replaces out_name, out_data, out_len
 ) -> GfrStatus {
     let result = catch_unwind(|| -> Result<(), GfrStatus> {
-        // Null checks
-        if in_data.is_null()
-            || secret_key.is_null()
-            || out_name.is_null()
-            || out_data.is_null()
-            || out_len.is_null()
-        {
+        if in_data.is_null() || secret_key.is_null() || out_result.is_null() {
             return Err(GfrStatus::ErrorInvalidInput);
         }
 
-        // Parse inputs safely
         let data_slice = unsafe { slice::from_raw_parts(in_data, in_len) };
         let skey_str = unsafe { CStr::from_ptr(secret_key) }.to_str().unwrap_or("");
 
-        // Password can be empty/null for unlocked keys
         let pwd_str = if password.is_null() {
             ""
         } else {
@@ -347,22 +337,41 @@ pub extern "C" fn gfr_crypto_decrypt_data(
         };
 
         // Perform decryption
-        let (filename, mut decrypted_bytes) =
-            crate::crypto::decrypt_internal(data_slice, skey_str, pwd_str)?;
+        let mut internal_result = crate::crypto::decrypt_internal(data_slice, skey_str, pwd_str)?;
 
-        // Transfer string ownership to C
-        let c_filename = CString::new(filename).unwrap_or_default();
+        // 1. Process Payload
+        internal_result.data.shrink_to_fit();
+        let data_ptr = internal_result.data.as_mut_ptr();
+        let data_len = internal_result.data.len();
+        std::mem::forget(internal_result.data);
 
-        // Transfer bytes ownership to C (using exact capacity to avoid memory leaks)
-        decrypted_bytes.shrink_to_fit();
-        let ptr = decrypted_bytes.as_mut_ptr();
-        let len = decrypted_bytes.len();
-        std::mem::forget(decrypted_bytes); // Deliberate leak to FFI
+        // 2. Process Filename
+        let c_filename = CString::new(internal_result.filename)
+            .unwrap_or_default()
+            .into_raw();
 
+        // 3. Process Recipients
+        let mut c_recipients = Vec::with_capacity(internal_result.recipients.len());
+        for rec in internal_result.recipients {
+            c_recipients.push(GfrRecipientResultC {
+                key_id: CString::new(rec.key_id).unwrap_or_default().into_raw(),
+                pub_algo: CString::new(rec.pub_algo).unwrap_or_default().into_raw(),
+                status: rec.status,
+            });
+        }
+
+        let mut boxed_recs = c_recipients.into_boxed_slice();
+        let recs_ptr = boxed_recs.as_mut_ptr();
+        let recs_count = boxed_recs.len();
+        std::mem::forget(boxed_recs);
+
+        // 4. Assign to C Struct
         unsafe {
-            *out_name = c_filename.into_raw();
-            *out_data = ptr;
-            *out_len = len;
+            (*out_result).data = data_ptr;
+            (*out_result).data_len = data_len;
+            (*out_result).filename = c_filename;
+            (*out_result).recipients = recs_ptr;
+            (*out_result).recipient_count = recs_count;
         }
 
         Ok(())
@@ -372,6 +381,46 @@ pub extern "C" fn gfr_crypto_decrypt_data(
         Ok(Ok(_)) => GfrStatus::Success,
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
+    }
+}
+
+/// Free the decryption result memory
+#[unsafe(no_mangle)]
+pub extern "C" fn gfr_crypto_free_decrypt_result(result: *mut GfrDecryptResultC) {
+    if result.is_null() {
+        return;
+    }
+
+    unsafe {
+        if !(*result).data.is_null() && (*result).data_len > 0 {
+            let _ = Vec::from_raw_parts((*result).data, (*result).data_len, (*result).data_len);
+        }
+
+        if !(*result).filename.is_null() {
+            drop(CString::from_raw((*result).filename));
+        }
+
+        if !(*result).recipients.is_null() && (*result).recipient_count > 0 {
+            let recs_slice =
+                std::slice::from_raw_parts_mut((*result).recipients, (*result).recipient_count);
+            for rec in recs_slice.iter_mut() {
+                if !rec.key_id.is_null() {
+                    drop(CString::from_raw(rec.key_id));
+                }
+                if !rec.pub_algo.is_null() {
+                    drop(CString::from_raw(rec.pub_algo));
+                }
+            }
+            let array_ptr =
+                std::ptr::slice_from_raw_parts_mut((*result).recipients, (*result).recipient_count);
+            drop(Box::from_raw(array_ptr));
+        }
+
+        (*result).data = std::ptr::null_mut();
+        (*result).data_len = 0;
+        (*result).filename = std::ptr::null_mut();
+        (*result).recipients = std::ptr::null_mut();
+        (*result).recipient_count = 0;
     }
 }
 
