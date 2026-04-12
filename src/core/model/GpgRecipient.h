@@ -28,8 +28,8 @@
 
 #pragma once
 
-#include "core/typedef/GpgTypedef.h"
-
+#include "core/typedef/GFTypedef.h"
+#include "core/typedef/GpgErrorTypedef.h"
 namespace GpgFrontend {
 
 struct GF_CORE_EXPORT GpgRecipient {
@@ -45,6 +45,8 @@ struct GF_CORE_EXPORT GpgRecipient {
   GpgRecipient();
 
   explicit GpgRecipient(gpgme_recipient_t r);
+
+  explicit GpgRecipient(const GFRecipient& r);
 };
 
 }  // namespace GpgFrontend

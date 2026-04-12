@@ -38,11 +38,16 @@ GpgDecryptResult::GpgDecryptResult(gpgme_decrypt_result_t r)
             }
           })) {}
 
+GpgDecryptResult::GpgDecryptResult(const GFDecryptResult& r)
+    : gf_result_ref_(QSharedPointer<GFDecryptResult>::create(r)) {}
+
 GpgDecryptResult::GpgDecryptResult() = default;
 
 GpgDecryptResult::~GpgDecryptResult() = default;
 
-auto GpgDecryptResult::IsGood() -> bool { return result_ref_ != nullptr; }
+auto GpgDecryptResult::IsGood() -> bool {
+  return result_ref_ != nullptr || gf_result_ref_ != nullptr;
+}
 
 auto GpgDecryptResult::GetRaw() -> gpgme_decrypt_result_t {
   return result_ref_.get();
@@ -50,6 +55,18 @@ auto GpgDecryptResult::GetRaw() -> gpgme_decrypt_result_t {
 
 auto GpgDecryptResult::Recipients() -> QContainer<GpgRecipient> {
   QContainer<GpgRecipient> result;
+
+  if (gf_result_ref_ != nullptr) {
+    for (const auto& rec : gf_result_ref_->recipients) {
+      result.push_back(GpgRecipient{rec});
+    }
+    return result;
+  }
+
+  if (result_ref_ == nullptr) {
+    return result;
+  }
+
   for (auto* reci = result_ref_->recipients; reci != nullptr;
        reci = reci->next) {
     try {
@@ -62,4 +79,55 @@ auto GpgDecryptResult::Recipients() -> QContainer<GpgRecipient> {
   }
   return result;
 }
+
+auto GpgDecryptResult::UnsupportedAlgorithm() -> QString {
+  if (gf_result_ref_ != nullptr) {
+    return {};
+  }
+  if (result_ref_ != nullptr && result_ref_->unsupported_algorithm != nullptr) {
+    return QString{result_ref_->unsupported_algorithm};
+  }
+  return {};
+}
+
+auto GpgDecryptResult::Filename() -> QString {
+  if (gf_result_ref_ != nullptr) {
+    return gf_result_ref_->filename;
+  }
+  if (result_ref_ != nullptr && result_ref_->file_name != nullptr) {
+    return result_ref_->file_name;
+  }
+  return {};
+}
+
+auto GpgDecryptResult::MIME() -> bool {
+  if (gf_result_ref_ != nullptr) {
+    return false;  // RPGP does not support MIME, treat as non-MIME
+  }
+  if (result_ref_ != nullptr) {
+    return result_ref_->is_mime != 0;
+  }
+  return {};
+}
+
+auto GpgDecryptResult::MessageIntegrityProtected() -> bool {
+  if (gf_result_ref_ != nullptr) {
+    return true;  // RPGP always has MDC
+  }
+  if (result_ref_ != nullptr) {
+    return result_ref_->legacy_cipher_nomdc == 0;
+  }
+  return {};
+}
+
+auto GpgDecryptResult::SymmetricEncryptionAlgorithm() -> QString {
+  if (gf_result_ref_ != nullptr) {
+    return {};
+  }
+  if (result_ref_ != nullptr && result_ref_->symkey_algo != nullptr) {
+    return QString{result_ref_->symkey_algo};
+  }
+  return {};
+}
+
 }  // namespace GpgFrontend

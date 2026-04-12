@@ -297,27 +297,46 @@ auto DecryptRpgpImpl(GpgContext& ctx_, const GFBuffer& in_buffer,
     return GPG_ERR_NO_SECKEY;
   }
 
-  uint8_t* out_data;
-  size_t out_len = 0;
-  char* out_name;
+  Rust::GfrDecryptResultC decrypt_result;
   auto secret_key_utf8 = target_secret_key_block.toUtf8();
 
   err = Rust::gfr_crypto_decrypt_data(
       reinterpret_cast<const uint8_t*>(in_buffer.Data()), in_buffer.Size(),
-      secret_key_utf8.constData(), "123456", &out_name, &out_data, &out_len);
+      secret_key_utf8.constData(), "123456", &decrypt_result);
 
-  if (err != Rust::GfrStatus::Success || out_data == nullptr) {
+  if (err != Rust::GfrStatus::Success || decrypt_result.data == nullptr) {
     LOG_E() << "Rust FFI decryption failed.";
     return GPG_ERR_GENERAL;
   }
 
+  GFDecryptResult result;
+  result.data = GFBuffer(reinterpret_cast<const char*>(decrypt_result.data),
+                         decrypt_result.data_len);
+  result.filename = QString::fromUtf8(decrypt_result.filename);
+  for (size_t i = 0; i < decrypt_result.recipient_count; ++i) {
+    const auto& rec = decrypt_result.recipients[i];
+    GFRecipientStatus status = GFRecipientStatus::kERROR;
+    if (rec.status == Rust::GfrRecipientStatus::Success) {
+      status = GFRecipientStatus::kSUCCESS;
+    } else if (rec.status == Rust::GfrRecipientStatus::NoKey) {
+      status = GFRecipientStatus::kNO_KEY;
+    } else {
+      status = GFRecipientStatus::kERROR;
+    }
+    result.recipients.push_back({
+        QString::fromUtf8(rec.key_id).toUpper(),
+        QString::fromUtf8(rec.pub_algo),
+        status,
+    });
+  }
+
+  Rust::gfr_crypto_free_decrypt_result(&decrypt_result);
+
   data_object->Swap({
-      GpgDecryptResult(),
-      GFBuffer(reinterpret_cast<const char*>(out_data), out_len),
+      GpgDecryptResult(result),
+      result.data,
   });
 
-  Rust::gfr_crypto_free_buffer(out_data, out_len);
-  Rust::gfr_crypto_free_string(out_name);
   return GPG_ERR_NO_ERROR;
 }
 

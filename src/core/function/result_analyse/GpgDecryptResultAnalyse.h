@@ -63,7 +63,7 @@ class GF_CORE_EXPORT GpgDecryptResultAnalyse : public GpgResultAnalyse {
    * @param stream
    * @param recipient
    */
-  void print_recipient(QTextStream &stream, gpgme_recipient_t recipient);
+  void print_recipient(QTextStream& stream, const GpgRecipient& recipient);
 
   GpgError error_;           ///<
   GpgDecryptResult result_;  ///<

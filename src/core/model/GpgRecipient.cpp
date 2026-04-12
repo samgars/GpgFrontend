@@ -37,4 +37,19 @@ GpgRecipient::GpgRecipient(gpgme_recipient_t r) {
   this->pubkey_algo = QString{gpgme_pubkey_algo_name(r->pubkey_algo)};
   this->status = r->status;
 }
+
+GpgRecipient::GpgRecipient(const GFRecipient& r)
+    : keyid(r.key_id), pubkey_algo(r.pub_algo) {
+  switch (r.status) {
+    case GFRecipientStatus::kSUCCESS:
+      status = GPG_ERR_NO_ERROR;
+      break;
+    case GFRecipientStatus::kNO_KEY:
+      status = GPG_ERR_NO_KEY;
+      break;
+    default:
+      status = GPG_ERR_GENERAL;
+      break;
+  }
+};
 }  // namespace GpgFrontend

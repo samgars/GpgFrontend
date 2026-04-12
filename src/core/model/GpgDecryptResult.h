@@ -41,7 +41,19 @@ class GF_CORE_EXPORT GpgDecryptResult {
 
   auto Recipients() -> QContainer<GpgRecipient>;
 
+  auto UnsupportedAlgorithm() -> QString;
+
+  auto Filename() -> QString;
+
+  auto MIME() -> bool;
+
+  auto MessageIntegrityProtected() -> bool;
+
+  auto SymmetricEncryptionAlgorithm() -> QString;
+
   explicit GpgDecryptResult(gpgme_decrypt_result_t);
+
+  explicit GpgDecryptResult(const GFDecryptResult&);
 
   GpgDecryptResult();
 
@@ -49,6 +61,7 @@ class GF_CORE_EXPORT GpgDecryptResult {
 
  private:
   QSharedPointer<struct _gpgme_op_decrypt_result> result_ref_ = nullptr;  ///<
+  QSharedPointer<struct GFDecryptResult> gf_result_ref_ = nullptr;        ///<
 };
 
 }  // namespace GpgFrontend
