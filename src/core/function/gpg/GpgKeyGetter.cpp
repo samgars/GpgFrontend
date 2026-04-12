@@ -314,6 +314,20 @@ class GpgKeyGetter::Impl : public SingletonFunctionObject<GpgKeyGetter::Impl> {
         keys_cache_.push_back(key);
         keys_search_cache_.insert(meta.fpr, key);
         keys_search_cache_.insert(meta.key_id, key);
+
+        for (const auto& s_key : key->SubKeys()) {
+          if (s_key.ID() == key->ID()) continue;
+
+          // don't add adsk key or it will cause bugs
+          if (s_key.IsADSK()) continue;
+
+          // subkeys should be weaker than primary key
+          if (keys_search_cache_.contains(s_key.ID())) continue;
+
+          auto p_s_key = SecureCreateSharedObject<GpgSubKey>(s_key);
+          keys_search_cache_.insert(s_key.ID(), p_s_key);
+          keys_search_cache_.insert(s_key.Fingerprint(), p_s_key);
+        }
       }
     }
 
