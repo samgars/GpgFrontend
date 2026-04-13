@@ -34,6 +34,7 @@ use pgp::{
     ser::Serialize,
     types::{KeyDetails, PublicParams},
 };
+use std::collections::HashSet;
 use std::io;
 
 pub struct ExtractedSubkey {
@@ -60,6 +61,8 @@ pub struct ExtractedMetadata {
     pub can_auth: bool,
     pub can_certify: bool,
     pub subkeys: Vec<ExtractedSubkey>,
+    pub public_key_block: String,
+    pub secret_key_block: Option<String>,
 }
 
 fn determine_algo(public_params: &PublicParams) -> GfrKeyAlgo {
@@ -126,55 +129,27 @@ fn extract_capabilities(signatures: &[Signature]) -> (bool, bool, bool, bool) {
     (can_sign, can_encrypt, can_auth, can_certify)
 }
 
-pub fn extract_metadata_internal(key_block: &str) -> Result<ExtractedMetadata, GfrStatus> {
-    // Try to parse as secret key first
-    let (has_secret, primary_key, users, subkeys_info) =
-        if let Ok((sk, _)) = SignedSecretKey::from_string(key_block) {
-            let pk = SignedPublicKey::from(sk.clone());
-            let mut subs = Vec::new();
+// Helper: Extract metadata from a secret key
+fn build_secret_metadata(sk: &SignedSecretKey) -> ExtractedMetadata {
+    let pk = SignedPublicKey::from(sk.clone());
+    let mut subs = Vec::new();
 
-            // Extract from secret subkeys to know they have secrets
-            for sub in &sk.secret_subkeys {
-                let (can_sign, can_encrypt, can_auth, can_certify) =
-                    extract_capabilities(&sub.signatures);
-                subs.push(ExtractedSubkey {
-                    fpr: sub.key.fingerprint().to_string(),
-                    key_id: sub.key.legacy_key_id().to_string(),
-                    algo: determine_algo(sub.key.public_params()),
-                    created_at: sub.key.created_at().as_secs(),
-                    has_secret: true,
-                    can_sign,
-                    can_encrypt,
-                    can_auth,
-                    can_certify,
-                });
-            }
-            (true, pk.primary_key, pk.details.users, subs)
+    for sub in &sk.secret_subkeys {
+        let (can_sign, can_encrypt, can_auth, can_certify) = extract_capabilities(&sub.signatures);
+        subs.push(ExtractedSubkey {
+            fpr: sub.key.fingerprint().to_string(),
+            key_id: sub.key.legacy_key_id().to_string(),
+            algo: determine_algo(sub.key.public_params()),
+            created_at: sub.key.created_at().as_secs(),
+            has_secret: true,
+            can_sign,
+            can_encrypt,
+            can_auth,
+            can_certify,
+        });
+    }
 
-        // Fallback to public key
-        } else if let Ok((pk, _)) = SignedPublicKey::from_string(key_block) {
-            let mut subs = Vec::new();
-
-            for sub in &pk.public_subkeys {
-                let (can_sign, can_encrypt, can_auth, can_certify) =
-                    extract_capabilities(&sub.signatures);
-                subs.push(ExtractedSubkey {
-                    fpr: sub.key.fingerprint().to_string(),
-                    key_id: sub.key.legacy_key_id().to_string(),
-                    algo: determine_algo(sub.key.public_params()),
-                    created_at: sub.key.created_at().as_secs(),
-                    has_secret: false,
-                    can_sign,
-                    can_encrypt,
-                    can_auth,
-                    can_certify,
-                });
-            }
-            (false, pk.primary_key, pk.details.users, subs)
-        } else {
-            return Err(GfrStatus::ErrorInvalidInput);
-        };
-
+    let users = &pk.details.users;
     let user_id = users
         .first()
         .map(|u| String::from_utf8_lossy(u.id.id()).into_owned())
@@ -186,19 +161,116 @@ pub fn extract_metadata_internal(key_block: &str) -> Result<ExtractedMetadata, G
         .unwrap_or(&[]);
     let (can_sign, can_encrypt, can_auth, can_certify) = extract_capabilities(primary_user_sigs);
 
-    Ok(ExtractedMetadata {
-        fpr: primary_key.fingerprint().to_string(),
-        key_id: primary_key.legacy_key_id().to_string(),
+    ExtractedMetadata {
+        fpr: pk.primary_key.fingerprint().to_string(),
+        key_id: pk.primary_key.legacy_key_id().to_string(),
         user_id,
-        algo: determine_algo(primary_key.public_params()),
-        created_at: primary_key.created_at().as_secs(),
-        has_secret,
-        subkeys: subkeys_info,
+        algo: determine_algo(pk.primary_key.public_params()),
+        created_at: pk.primary_key.created_at().as_secs(),
+        has_secret: true,
+        subkeys: subs,
         can_sign,
         can_encrypt,
         can_auth,
         can_certify,
-    })
+        public_key_block: pk
+            .to_armored_string(ArmorOptions::default())
+            .unwrap_or_default(),
+        secret_key_block: sk.to_armored_string(ArmorOptions::default()).ok(),
+    }
+}
+
+// Helper: Extract metadata from a public key
+fn build_public_metadata(pk: &SignedPublicKey) -> ExtractedMetadata {
+    let mut subs = Vec::new();
+
+    for sub in &pk.public_subkeys {
+        let (can_sign, can_encrypt, can_auth, can_certify) = extract_capabilities(&sub.signatures);
+        subs.push(ExtractedSubkey {
+            fpr: sub.key.fingerprint().to_string(),
+            key_id: sub.key.legacy_key_id().to_string(),
+            algo: determine_algo(sub.key.public_params()),
+            created_at: sub.key.created_at().as_secs(),
+            has_secret: false,
+            can_sign,
+            can_encrypt,
+            can_auth,
+            can_certify,
+        });
+    }
+
+    let users = &pk.details.users;
+    let user_id = users
+        .first()
+        .map(|u| String::from_utf8_lossy(u.id.id()).into_owned())
+        .unwrap_or_default();
+
+    let primary_user_sigs = users
+        .first()
+        .map(|u| u.signatures.as_slice())
+        .unwrap_or(&[]);
+    let (can_sign, can_encrypt, can_auth, can_certify) = extract_capabilities(primary_user_sigs);
+
+    ExtractedMetadata {
+        fpr: pk.primary_key.fingerprint().to_string(),
+        key_id: pk.primary_key.legacy_key_id().to_string(),
+        user_id,
+        algo: determine_algo(pk.primary_key.public_params()),
+        created_at: pk.primary_key.created_at().as_secs(),
+        has_secret: false,
+        subkeys: subs,
+        can_sign,
+        can_encrypt,
+        can_auth,
+        can_certify,
+        public_key_block: pk
+            .to_armored_string(ArmorOptions::default())
+            .unwrap_or_default(),
+        secret_key_block: None,
+    }
+}
+
+// Main extraction function supporting multiple keys
+pub fn extract_metadata_many_internal(
+    key_blocks: &str,
+) -> Result<Vec<ExtractedMetadata>, GfrStatus> {
+    let mut results = Vec::new();
+    let mut processed_fprs = HashSet::new();
+
+    // 1. Parse all available secret keys first
+    if let Ok((sk_iter, _)) = SignedSecretKey::from_string_many(key_blocks) {
+        for sk_res in sk_iter {
+            if let Ok(sk) = sk_res {
+                let metadata = build_secret_metadata(&sk);
+                // Record the fingerprint to prevent duplicate processing later
+                processed_fprs.insert(metadata.fpr.clone());
+                results.push(metadata);
+            }
+        }
+    }
+
+    // 2. Parse all public keys and filter out the ones already processed as secret keys
+    if let Ok((pk_iter, _)) = SignedPublicKey::from_string_many(key_blocks) {
+        for pk_res in pk_iter {
+            if let Ok(pk) = pk_res {
+                let fpr = pk.fingerprint().to_string();
+
+                // Skip if this key was already extracted with its secret material
+                if !processed_fprs.contains(&fpr) {
+                    let metadata = build_public_metadata(&pk);
+                    processed_fprs.insert(fpr);
+                    results.push(metadata);
+                }
+            }
+        }
+    }
+
+    // 3. If no keys were successfully parsed, return an error
+    if results.is_empty() {
+        return Err(GfrStatus::ErrorInvalidInput);
+    }
+
+    Ok(results)
 }
 
 // Extract a public key armored string from a secret key armored string
@@ -276,5 +348,48 @@ pub fn export_merged_public_keys(key_blocks: &[&str]) -> Result<String, GfrStatu
     .map_err(|_| GfrStatus::ErrorArmorFailed)?;
 
     // 7. Convert the armored bytes back to a String.
+    String::from_utf8(armored_output).map_err(|_| GfrStatus::ErrorArmorFailed)
+}
+
+pub fn export_merged_secret_keys(key_blocks: &[&str]) -> Result<String, GfrStatus> {
+    let mut combined_bytes = Vec::new();
+
+    for block in key_blocks {
+        // 1. Only accept valid secret keys. Fallback to public key is NOT possible here.
+        let sec_key = if let Ok((sk, _)) = SignedSecretKey::from_string(block) {
+            sk
+        } else {
+            // Fails if the block is a public key or invalid data
+            return Err(GfrStatus::ErrorInvalidInput);
+        };
+
+        // 2. Serialize the underlying packets of the secret key into our buffer.
+        sec_key
+            .to_writer(&mut combined_bytes)
+            .map_err(|_| GfrStatus::ErrorInvalidInput)?;
+    }
+
+    if combined_bytes.is_empty() {
+        return Err(GfrStatus::ErrorInvalidInput);
+    }
+
+    // 3. Wrap the merged bytes into our custom struct (reusing the one from before).
+    let merged_source = MergedRawKeys {
+        packet_bytes: combined_bytes,
+    };
+
+    let mut armored_output = Vec::new();
+
+    // 4. Call armor::write, but use BlockType::PrivateKey this time.
+    armor::write(
+        &merged_source,
+        BlockType::PrivateKey, // Crucial change: PRIVATE KEY BLOCK
+        &mut armored_output,
+        None,
+        true,
+    )
+    .map_err(|_| GfrStatus::ErrorArmorFailed)?;
+
+    // 5. Convert the armored bytes back to a String.
     String::from_utf8(armored_output).map_err(|_| GfrStatus::ErrorArmorFailed)
 }

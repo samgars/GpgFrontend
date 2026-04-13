@@ -114,6 +114,9 @@ pub struct GfrKeyMetadataC {
     pub created_at: u32,
     pub has_secret: bool,
 
+    pub public_key_block: *mut std::os::raw::c_char,
+    pub secret_key_block: *mut std::os::raw::c_char,
+
     pub can_sign: bool,
     pub can_encrypt: bool,
     pub can_auth: bool,

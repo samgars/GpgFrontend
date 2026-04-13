@@ -26,7 +26,9 @@
  *
  */
 
-use crate::key::{export_merged_public_keys, extract_public_key_internal};
+use crate::key::{
+    export_merged_public_keys, export_merged_secret_keys, extract_public_key_internal,
+};
 use crate::keygen::{GeneratedKeys, create_key_internal};
 use crate::types::{
     GfrFreeCb, GfrKeyConfig, GfrKeyGenerateResult, GfrKeyMetadataC, GfrPasswordFetchCb, GfrStatus,
@@ -119,109 +121,103 @@ pub extern "C" fn gfr_crypto_generate_key(
 #[unsafe(no_mangle)]
 pub extern "C" fn gfr_crypto_extract_metadata(
     key_block: *const std::os::raw::c_char,
-    out_metadata: *mut GfrKeyMetadataC,
+    out_metadata: *mut *mut GfrKeyMetadataC,
+    out_metadata_count: *mut usize,
 ) -> GfrStatus {
+    // Check for null pointers
+    if key_block.is_null() || out_metadata.is_null() || out_metadata_count.is_null() {
+        return GfrStatus::ErrorInvalidInput;
+    }
+
     let result = std::panic::catch_unwind(|| -> Result<(), GfrStatus> {
-        // ... (null checks and string parsing same as before) ...
         let block_str = unsafe { CStr::from_ptr(key_block) }
             .to_str()
             .map_err(|_| GfrStatus::ErrorInvalidInput)?;
-        let meta = crate::key::extract_metadata_internal(block_str)?;
 
-        let c_fpr = CString::new(meta.fpr).map_err(|_| GfrStatus::ErrorInternal)?;
-        let c_key_id = CString::new(meta.key_id).map_err(|_| GfrStatus::ErrorInternal)?;
-        let c_user_id = CString::new(meta.user_id).map_err(|_| GfrStatus::ErrorInternal)?;
+        // Get the list of metadata from the internal function
+        let meta_list = crate::key::extract_metadata_many_internal(block_str)?;
 
-        // Convert the subkeys Vec into a C-compatible array
-        let mut c_subkeys = Vec::with_capacity(meta.subkeys.len());
-        for sub in meta.subkeys {
-            c_subkeys.push(GfrSubkeyMetadataC {
-                fpr: CString::new(sub.fpr)
+        // Prepare a vector to hold the C-compatible metadata structs
+        let mut c_metadata_list = Vec::with_capacity(meta_list.len());
+
+        for meta in meta_list {
+            let c_fpr = CString::new(meta.fpr).map_err(|_| GfrStatus::ErrorInternal)?;
+            let c_key_id = CString::new(meta.key_id).map_err(|_| GfrStatus::ErrorInternal)?;
+            let c_user_id = CString::new(meta.user_id).map_err(|_| GfrStatus::ErrorInternal)?;
+
+            // Convert the new armored key blocks
+            let c_pub_block = CString::new(meta.public_key_block)
+                .map_err(|_| GfrStatus::ErrorInternal)?
+                .into_raw();
+
+            let c_sec_block = match meta.secret_key_block {
+                Some(secret_str) => CString::new(secret_str)
                     .map_err(|_| GfrStatus::ErrorInternal)?
                     .into_raw(),
-                key_id: CString::new(sub.key_id)
-                    .map_err(|_| GfrStatus::ErrorInternal)?
-                    .into_raw(),
-                algo: sub.algo,
-                created_at: sub.created_at,
-                has_secret: sub.has_secret,
-                can_sign: sub.can_sign,
-                can_encrypt: sub.can_encrypt,
-                can_auth: sub.can_auth,
-                can_certify: sub.can_certify,
+                None => std::ptr::null_mut(), // Safe to use NULL for Option::None in C
+            };
+
+            // Convert the subkeys Vec into a C-compatible array
+            let mut c_subkeys = Vec::with_capacity(meta.subkeys.len());
+            for sub in meta.subkeys {
+                c_subkeys.push(GfrSubkeyMetadataC {
+                    fpr: CString::new(sub.fpr)
+                        .map_err(|_| GfrStatus::ErrorInternal)?
+                        .into_raw(),
+                    key_id: CString::new(sub.key_id)
+                        .map_err(|_| GfrStatus::ErrorInternal)?
+                        .into_raw(),
+                    algo: sub.algo,
+                    created_at: sub.created_at,
+                    has_secret: sub.has_secret,
+                    can_sign: sub.can_sign,
+                    can_encrypt: sub.can_encrypt,
+                    can_auth: sub.can_auth,
+                    can_certify: sub.can_certify,
+                });
+            }
+
+            // Prevent Rust from deallocating the subkeys array, transfer ownership to C
+            let mut boxed_subkeys = c_subkeys.into_boxed_slice();
+            let subkeys_ptr = boxed_subkeys.as_mut_ptr();
+            let subkey_count = boxed_subkeys.len();
+            std::mem::forget(boxed_subkeys); // Leak it deliberately
+
+            // Assemble the C-compatible metadata struct
+            c_metadata_list.push(GfrKeyMetadataC {
+                fpr: c_fpr.into_raw(),
+                key_id: c_key_id.into_raw(),
+                user_id: c_user_id.into_raw(),
+                algo: meta.algo,
+                created_at: meta.created_at,
+                has_secret: meta.has_secret,
+                can_sign: meta.can_sign,
+                can_encrypt: meta.can_encrypt,
+                can_auth: meta.can_auth,
+                can_certify: meta.can_certify,
+                subkeys: subkeys_ptr,
+                subkey_count,
+                public_key_block: c_pub_block,
+                secret_key_block: c_sec_block,
             });
         }
 
-        // Prevent Rust from deallocating the vector backing array, transfer ownership to C
-        let mut boxed_slice = c_subkeys.into_boxed_slice();
-        let subkeys_ptr = boxed_slice.as_mut_ptr();
-        let subkey_count = boxed_slice.len();
-        std::mem::forget(boxed_slice); // Leak it deliberately to FFI
-
+        // Prevent Rust from deallocating the outer metadata array
+        let mut boxed_metadata = c_metadata_list.into_boxed_slice();
         unsafe {
-            (*out_metadata).fpr = c_fpr.into_raw();
-            (*out_metadata).key_id = c_key_id.into_raw();
-            (*out_metadata).user_id = c_user_id.into_raw();
-            (*out_metadata).algo = meta.algo;
-            (*out_metadata).created_at = meta.created_at;
-            (*out_metadata).has_secret = meta.has_secret;
-            (*out_metadata).can_sign = meta.can_sign;
-            (*out_metadata).can_encrypt = meta.can_encrypt;
-            (*out_metadata).can_auth = meta.can_auth;
-            (*out_metadata).can_certify = meta.can_certify;
-
-            (*out_metadata).subkeys = subkeys_ptr;
-            (*out_metadata).subkey_count = subkey_count;
+            // Write to output pointers
+            *out_metadata = boxed_metadata.as_mut_ptr();
+            *out_metadata_count = boxed_metadata.len();
         }
+        std::mem::forget(boxed_metadata); // Leak outer array to FFI
 
         Ok(())
     });
 
     match result {
-        Ok(Ok(_)) => GfrStatus::Success,
+        Ok(Ok(_)) => GfrStatus::Success, // Replace with your actual success enum variant
         Ok(Err(e)) => e,
         Err(_) => GfrStatus::ErrorPanic,
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn gfr_crypto_free_metadata(meta: *mut GfrKeyMetadataC) {
-    if meta.is_null() {
-        return;
-    }
-
-    unsafe {
-        // 1. Free primary strings
-        if !(*meta).fpr.is_null() {
-            drop(CString::from_raw((*meta).fpr));
-        }
-        if !(*meta).key_id.is_null() {
-            drop(CString::from_raw((*meta).key_id));
-        }
-        if !(*meta).user_id.is_null() {
-            drop(CString::from_raw((*meta).user_id));
-        }
-
-        // 2. Free subkeys array and its internal strings
-        if !(*meta).subkeys.is_null() && (*meta).subkey_count > 0 {
-            // Reconstruct the slice so we can iterate
-            let subkeys_slice =
-                std::slice::from_raw_parts_mut((*meta).subkeys, (*meta).subkey_count);
-
-            for sub in subkeys_slice.iter_mut() {
-                if !sub.fpr.is_null() {
-                    drop(CString::from_raw(sub.fpr));
-                }
-                if !sub.key_id.is_null() {
-                    drop(CString::from_raw(sub.key_id));
-                }
-            }
-
-            // Reconstruct the Box of the array itself to deallocate the array memory
-            let array_ptr =
-                std::ptr::slice_from_raw_parts_mut((*meta).subkeys, (*meta).subkey_count);
-            drop(Box::from_raw(array_ptr));
-        }
     }
 }
 
@@ -291,9 +287,10 @@ pub extern "C" fn gfr_crypto_get_recipients(
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn gfr_export_merged_public_keys(
+pub unsafe extern "C" fn gfr_export_merged_keys(
     keys_ptr: *const *const c_char,
     keys_len: usize,
+    secret: bool,
     out_armored_ptr: *mut *mut c_char,
 ) -> GfrStatus {
     // 1. Check for null pointers to prevent segmentation faults
@@ -315,6 +312,28 @@ pub unsafe extern "C" fn gfr_export_merged_public_keys(
             Ok(s) => rust_strs.push(s),
             Err(_) => return GfrStatus::ErrorInvalidInput, // Fails if not valid UTF-8
         }
+    }
+
+    if secret {
+        // 4. Call the core Rust function
+        return match export_merged_secret_keys(&rust_strs) {
+            Ok(armored_string) => {
+                // 5. Convert the resulting Rust String into a null-terminated CString
+                match CString::new(armored_string) {
+                    Ok(c_str) => {
+                        // Transfer ownership of the memory to C (prevents Rust from dropping it)
+                        unsafe { *out_armored_ptr = c_str.into_raw() };
+
+                        // Assuming GfrStatus has a Success variant.
+                        // If your enum uses a different name for success, adjust this.
+                        GfrStatus::Success
+                    }
+                    // Handle cases where the output string somehow contains a null byte
+                    Err(_) => GfrStatus::ErrorArmorFailed,
+                }
+            }
+            Err(status) => status, // Return the exact error status from the core function
+        };
     }
 
     // 4. Call the core Rust function

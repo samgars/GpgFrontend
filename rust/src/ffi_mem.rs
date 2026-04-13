@@ -28,8 +28,8 @@
 
 use crate::types::{
     GfrDecryptAndVerifyResultC, GfrDecryptMetadataC, GfrDecryptResultC, GfrEncryptAndSignResultC,
-    GfrEncryptMetadataC, GfrEncryptResultC, GfrKeyGenerateResult, GfrSignMetadataC, GfrSignResultC,
-    GfrVerifyMetadataC, GfrVerifyResultC,
+    GfrEncryptMetadataC, GfrEncryptResultC, GfrKeyGenerateResult, GfrKeyMetadataC,
+    GfrSignMetadataC, GfrSignResultC, GfrVerifyMetadataC, GfrVerifyResultC,
 };
 use std::ffi::{CString, c_char};
 
@@ -308,4 +308,54 @@ pub extern "C" fn gfr_crypto_free_decrypt_and_verify_result(
         gfr_crypto_free_decrypt_metadata(&mut (*result).decrypt_meta);
         gfr_crypto_free_verify_metadata(&mut (*result).verify_meta);
     }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn gfr_free_metadata_array(metadata_ptr: *mut GfrKeyMetadataC, count: usize) {
+    if metadata_ptr.is_null() || count == 0 {
+        return;
+    }
+
+    // Rebuild the outer slice
+    let metadata_slice = unsafe { std::slice::from_raw_parts_mut(metadata_ptr, count) };
+
+    for meta in metadata_slice.iter_mut() {
+        // Free strings in main key
+        if !meta.fpr.is_null() {
+            let _ = unsafe { CString::from_raw(meta.fpr as *mut _) };
+        }
+        if !meta.key_id.is_null() {
+            let _ = unsafe { CString::from_raw(meta.key_id as *mut _) };
+        }
+        if !meta.user_id.is_null() {
+            let _ = unsafe { CString::from_raw(meta.user_id as *mut _) };
+        }
+
+        if !meta.public_key_block.is_null() {
+            let _ = unsafe { CString::from_raw(meta.public_key_block as *mut _) };
+        }
+        if !meta.secret_key_block.is_null() {
+            let _ = unsafe { CString::from_raw(meta.secret_key_block as *mut _) };
+        }
+
+        // Free subkeys and their strings
+        if !meta.subkeys.is_null() && meta.subkey_count > 0 {
+            let subkeys_slice =
+                unsafe { std::slice::from_raw_parts_mut(meta.subkeys, meta.subkey_count) };
+            for sub in subkeys_slice.iter_mut() {
+                if !sub.fpr.is_null() {
+                    let _ = unsafe { CString::from_raw(sub.fpr as *mut _) };
+                }
+                if !sub.key_id.is_null() {
+                    let _ = unsafe { CString::from_raw(sub.key_id as *mut _) };
+                }
+            }
+            // Free the subkeys array itself
+            let _ =
+                unsafe { Vec::from_raw_parts(meta.subkeys, meta.subkey_count, meta.subkey_count) };
+        }
+    }
+
+    // Free the outer array itself
+    let _ = unsafe { Vec::from_raw_parts(metadata_ptr, count, count) };
 }
