@@ -128,4 +128,25 @@ auto GetGFKeysFromKeyBlock(const GFBuffer& buffer) -> QContainer<GFKey> {
 
   return keys;
 }
+
+auto CreateOrUpdateGFKeyInDatabase(GFKeyDatabase& key_db, const GFKey& key)
+    -> bool {
+  if (key.metadata.fpr.isEmpty()) {
+    LOG_E() << "key metadata must contain a valid fingerprint";
+    return false;
+  }
+
+  if (key.metadata.key_id.isEmpty()) {
+    LOG_E() << "key metadata must contain a valid key ID";
+    return false;
+  }
+
+  if (key.blocks.public_key.isEmpty()) {
+    LOG_E() << "key blocks must contain a valid public key block";
+    return false;
+  }
+
+  return key_db.SaveKey(key.metadata, key.blocks);
+}
+
 }  // namespace GpgFrontend

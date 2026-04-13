@@ -54,6 +54,7 @@ auto ImportKeyRpgpImpl(GpgContext& ctx, const GFBuffer& in_buffer)
 
   for (const auto& gf_key : gf_keys) {
     if (CreateOrUpdateGFKeyInDatabase(*key_db, gf_key)) {
+      info->imported_keys.push_back({gf_key.metadata.fpr, GPG_ERR_NO_ERROR});
       info->imported += 1;
     } else {
       LOG_E() << "failed to import key with fpr: " << gf_key.metadata.fpr;
