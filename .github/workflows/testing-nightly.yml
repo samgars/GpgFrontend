@@ -143,7 +143,12 @@ jobs:
             mingw-w64-x86_64-texinfo
             mingw-w64-x86_64-libassuan
             mingw-w64-x86_64-ccache
+            mingw-w64-x86_64-rust
         if: runner.os == 'Windows'
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        if: runner.os == 'Linux' || runner.os == 'macOS'
 
       - name: Build GpgME (macOS)
         run: |
