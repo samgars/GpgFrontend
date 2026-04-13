@@ -351,4 +351,55 @@ auto GfrDecryptAndVerifyResultC2GFDecryptAndVerifyResult(
   return result;
 }
 
+auto GetArmoredKeyBlocksForKeys(GFKeyDatabase& key_db,
+                                const QStringList& key_ids, bool secret)
+    -> QContainer<QByteArray> {
+  QContainer<QByteArray> key_blocks;
+
+  for (const auto& key_id : key_ids) {
+    auto key_block = key_db.GetKeyBlocks(key_id);
+    if (!key_block) {
+      LOG_E() << "failed to get key block for fpr: " << key_id;
+      continue;
+    }
+
+    if (secret && key_block->secret_key.isEmpty()) {
+      LOG_W() << "requested secret key export, but secret key block is empty "
+                 "for fpr: "
+              << key_id;
+      continue;
+    }
+
+    if (!secret && key_block->public_key.isEmpty()) {
+      if (key_block->secret_key.isEmpty()) {
+        LOG_W() << "requested public key export, but public key block is empty "
+                   "for fpr: "
+                << key_id;
+        continue;
+      }
+
+      auto secret_key_block = key_block->secret_key.toUtf8();
+      char* public_key = nullptr;
+      auto err = Rust::gfr_crypto_extract_public_key(secret_key_block.data(),
+                                                     &public_key);
+
+      if (err != Rust::GfrStatus::Success) {
+        LOG_E() << "gfr_crypto_extract_public_key error, code: "
+                << static_cast<int>(err) << ", fpr: " << key_id;
+        continue;
+      }
+
+      auto public_key_qs = QString::fromUtf8(public_key);
+      key_blocks.push_back(public_key_qs.toUtf8());
+      Rust::gfr_crypto_free_string(public_key);
+      continue;
+    }
+
+    key_blocks.push_back(
+        (secret ? key_block->secret_key : key_block->public_key).toUtf8());
+  }
+
+  return key_blocks;
+}
+
 }  // namespace GpgFrontend

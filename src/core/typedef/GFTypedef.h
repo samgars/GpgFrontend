@@ -93,6 +93,11 @@ struct GFKeyBlocks {
   QString secret_key;
 };
 
+struct GFKey {
+  GFKeyMetadata metadata;
+  GFKeyBlocks blocks;
+};
+
 enum class GFSignatureStatus : uint8_t {
   kVALID = 0,
   kBAD_SIGNATURE = 1,

@@ -142,6 +142,19 @@ auto GF_CORE_EXPORT GfrEncryptAndSignResultC2GFEncryptAndSignResult(
 auto GF_CORE_EXPORT GfrDecryptAndVerifyResultC2GFDecryptAndVerifyResult(
     const Rust::GfrDecryptAndVerifyResultC& r) -> GFDecryptAndVerifyResult;
 
+/**
+ * @brief
+ *
+ * @param key_db
+ * @param key_ids
+ * @param secret
+ * @return QContainer<QByteArray>
+ */
+auto GF_CORE_EXPORT GetArmoredKeyBlocksForKeys(GFKeyDatabase& key_db,
+                                               const QStringList& key_ids,
+                                               bool secret)
+    -> QContainer<QByteArray>;
+
 }  // namespace GpgFrontend
 
 #endif  // HAS_RUST_SUPPORT
